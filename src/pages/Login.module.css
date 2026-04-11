@@ -1,0 +1,435 @@
+/* ── Layout ─────────────────────────────────────────── */
+.root {
+  display: flex;
+  min-height: 100vh;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ── Brand (left) ───────────────────────────────────── */
+.brand {
+  flex: 0 0 50%;
+  background: linear-gradient(145deg, #14532d 0%, #166534 40%, #15803d 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+  position: relative;
+  overflow: hidden;
+}
+
+.brand::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 80%, rgba(255,255,255,0.05) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(255,255,255,0.05) 0%, transparent 50%);
+}
+
+.brandInner {
+  position: relative;
+  max-width: 420px;
+  color: #fff;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 40px;
+}
+
+
+.brandHeading {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.5px;
+  margin: 0 0 16px;
+  color: #fff;
+}
+
+.brandSubtext {
+  font-size: 15px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.75);
+  margin: 0 0 36px;
+}
+
+.featureList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.featureList li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.featureIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  font-size: 8px;
+  color: #bbf7d0;
+  flex-shrink: 0;
+}
+
+/* ── Form panel (right) ─────────────────────────────── */
+.formPanel {
+  flex: 0 0 50%;
+  max-width: 50%;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 40px;
+  gap: 24px;
+}
+
+/* ── Card ───────────────────────────────────────────── */
+.card {
+  width: 100%;
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.06),
+    0 4px 16px rgba(0, 0, 0, 0.06);
+  padding: 40px;
+}
+
+.cardHeader {
+  margin-bottom: 32px;
+}
+
+.cardTitle {
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 6px;
+  letter-spacing: -0.3px;
+}
+
+.cardSubtitle {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* ── Form fields ────────────────────────────────────── */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  letter-spacing: 0.01em;
+}
+
+.inputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.inputIcon {
+  position: absolute;
+  left: 14px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.input {
+  width: 100%;
+  height: 44px;
+  padding: 0 44px 0 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+}
+
+.input::placeholder {
+  color: #94a3b8;
+}
+
+.input:focus {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+.input:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.togglePassword {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.togglePassword:hover {
+  color: #475569;
+}
+
+.togglePassword:disabled {
+  cursor: not-allowed;
+}
+
+/* ── Error banner ───────────────────────────────────── */
+.errorBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ── Submit button ──────────────────────────────────── */
+.submitBtn {
+  height: 46px;
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  box-shadow: 0 1px 3px rgba(22, 163, 74, 0.3);
+  margin-top: 4px;
+}
+
+.submitBtn:hover:not(:disabled) {
+  background: #15803d;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.35);
+}
+
+.submitBtn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.submitBtn:disabled {
+  background: #86efac;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ── Divider ────────────────────────────────────────── */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #94a3b8;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+/* ── Guest button ───────────────────────────────────── */
+.guestBtn {
+  height: 52px;
+  background: transparent;
+  color: #374151;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.guestBtn:hover:not(:disabled) {
+  border-color: #16a34a;
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.04);
+}
+
+.guestBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Guest note ─────────────────────────────────────── */
+.guestNote {
+  font-size: 14px;
+  color: #64748b;
+  text-align: center;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ── Spinner ────────────────────────────────────────── */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Footer ─────────────────────────────────────────── */
+.footer {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 0;
+  text-align: center;
+}
+
+/* ── Responsive ─────────────────────────────────────── */
+
+/* Tablet */
+@media (max-width: 1024px) {
+  .brand {
+    flex: 0 0 40%;
+    padding: 32px 28px;
+  }
+
+  .brandHeading {
+    font-size: 24px;
+  }
+
+  .formPanel {
+    flex: 0 0 60%;
+    max-width: 60%;
+    padding: 40px 32px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .root {
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  .brand {
+    flex: 0 0 auto;
+    width: 100%;
+    padding: 28px 24px;
+    min-height: unset;
+  }
+
+  .brandHeading {
+    font-size: 20px;
+    margin-bottom: 10px;
+  }
+
+  .brandSubtext {
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+
+  .featureList {
+    gap: 10px;
+  }
+
+  .featureList li {
+    font-size: 13px;
+  }
+
+  .formPanel {
+    flex: 1;
+    width: 100%;
+    max-width: 100%;
+    padding: 28px 20px;
+  }
+
+  .card {
+    padding: 24px 20px;
+    border-radius: 12px;
+  }
+
+  .cardTitle {
+    font-size: 20px;
+  }
+
+  .submitBtn {
+    height: 48px;
+    font-size: 16px;
+  }
+}
+
+/* Small phones */
+@media (max-width: 400px) {
+  .brand {
+    padding: 20px 16px;
+  }
+
+  .logo {
+    margin-bottom: 20px;
+  }
+
+  .formPanel {
+    padding: 20px 16px;
+  }
+
+  .card {
+    padding: 20px 16px;
+  }
+}
