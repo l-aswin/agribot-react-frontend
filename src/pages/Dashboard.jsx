@@ -1,27 +1,596 @@
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import AgribotLogo from '../components/AgribotLogo';
-import styles from './Dashboard.module.css';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Legend,
+} from 'recharts';
+import Sidebar from '../components/Sidebar';
+import {
+  getDashboardMetrics, getSpeciesBreakdown, getDensityMap, getRunsChart,
+  getFields, createField, deleteField, getDevices,
+} from '../services/api';
 
+// ── Initial empty state (shown while API loads) ───────────────────────────────
+const MOCK_METRICS   = { total_weeds: null, total_runs: null, active_devices: null, total_devices: null };
+const MOCK_RUNS      = [];
+const MOCK_SPECIES   = [];
+const MOCK_GRID      = Array.from({ length: 10 }, () => Array.from({ length: 15 }, () => 'empty'));
+const MOCK_FIELDS    = [
+  { id: '1', name: 'North Field',  width: 40, height: 30, partition_type: 'row',    partition_count: 6 },
+  { id: '2', name: 'South Block',  width: 60, height: 20, partition_type: 'column', partition_count: 4 },
+  { id: '3', name: 'East Plot',    width: 25, height: 25, partition_type: 'row',    partition_count: 5 },
+];
+
+const DENSITY_CELL = {
+  low:    'bg-green-400',
+  medium: 'bg-orange-300',
+  high:   'bg-red-400',
+  empty:  'bg-slate-100',
+};
+
+function statusTag(status, online) {
+  if (!online) return <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Offline</span>;
+  if (status === 'working') return <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Working</span>;
+  return <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">Idle</span>;
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const navigate = useNavigate();
+  const [sidebarOpen, setSidebarOpen]       = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const [fields,   setFields]   = useState(MOCK_FIELDS);
+  const [devices,  setDevices]  = useState([]);
+  const [metrics,  setMetrics]  = useState(MOCK_METRICS);
+  const [runsData, setRunsData] = useState(MOCK_RUNS);
+  const [species,  setSpecies]  = useState(MOCK_SPECIES);
+  const [grid,     setGrid]     = useState(MOCK_GRID);
+
+  // Persist default + favourites in localStorage
+  const [defaultFieldId, setDefaultFieldIdState] = useState(
+    () => localStorage.getItem('defaultFieldId') ?? MOCK_FIELDS[0].id
+  );
+  const [favoriteIds, setFavoriteIdsState] = useState(
+    () => new Set(JSON.parse(localStorage.getItem('favoriteFieldIds') ?? '[]'))
+  );
+
+  const [activeFieldId, setActiveFieldId] = useState(
+    () => localStorage.getItem('defaultFieldId') ?? MOCK_FIELDS[0].id
+  );
+  const [showManage,    setShowManage]    = useState(false);
+  const [showAddField,  setShowAddField]  = useState(false);
+  const [addForm, setAddForm] = useState({ name: '', width: '', height: '', partition_type: 'row', partition_count: '' });
+  const [addError, setAddError] = useState('');
+
+  // Fetch all dashboard data for the selected field
+  const fetchAll = useCallback(async (fieldId) => {
+    try {
+      const [m, r, s, d, devs, flds] = await Promise.allSettled([
+        getDashboardMetrics(fieldId),
+        getRunsChart(fieldId),
+        getSpeciesBreakdown(fieldId),
+        getDensityMap(fieldId),
+        getDevices(),
+        getFields(),
+      ]);
+      if (m.status === 'fulfilled')    setMetrics(m.value);
+      if (r.status === 'fulfilled')    setRunsData(r.value);
+      if (s.status === 'fulfilled')    setSpecies(s.value);
+      if (d.status === 'fulfilled')    setGrid(d.value);
+      if (devs.status === 'fulfilled') setDevices(devs.value);
+      if (flds.status === 'fulfilled') {
+        setFields(flds.value);
+        // Ensure activeFieldId is valid after real fields load
+        setActiveFieldId(prev => {
+          const ids = flds.value.map(f => f.id);
+          return ids.includes(prev) ? prev : (ids[0] ?? prev);
+        });
+      }
+    } catch (_) { /* keep mock data on error */ }
+  }, []);
+
+  useEffect(() => { fetchAll(activeFieldId); }, [activeFieldId]);
+
+  // Poll device status every 30s
+  useEffect(() => {
+    const id = setInterval(async () => {
+      try { const devs = await getDevices(); setDevices(devs); } catch (_) {}
+    }, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  function setDefaultField(id) {
+    localStorage.setItem('defaultFieldId', id);
+    setDefaultFieldIdState(id);
+  }
+
+  function toggleFavorite(id) {
+    setFavoriteIdsState(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      localStorage.setItem('favoriteFieldIds', JSON.stringify([...next]));
+      return next;
+    });
+  }
 
   function handleLogout() {
     localStorage.removeItem('access_token');
-    navigate('/');
+    navigate('/login');
   }
 
+  async function handleDeleteField(id) {
+    try {
+      await deleteField(id);
+      const updated = fields.filter(f => f.id !== id);
+      setFields(updated);
+      if (activeFieldId === id) setActiveFieldId(updated[0]?.id ?? null);
+    } catch (_) {
+      setFields(fields.filter(f => f.id !== id)); // optimistic for mock
+    }
+  }
+
+  async function handleAddField(e) {
+    e.preventDefault();
+    const { name, width, height, partition_type, partition_count } = addForm;
+    if (!name || !width || !height || !partition_count) {
+      setAddError('All fields are required.');
+      return;
+    }
+    const body = { name, width: +width, height: +height, partition_type, partition_count: +partition_count };
+    try {
+      const created = await createField(body);
+      setFields(prev => [...prev, created]);
+    } catch (_) {
+      // mock fallback
+      setFields(prev => [...prev, { id: Date.now().toString(), ...body }]);
+    }
+    setAddForm({ name: '', width: '', height: '', partition_type: 'row', partition_count: '' });
+    setAddError('');
+    setShowAddField(false);
+    setShowManage(false);
+  }
+
+  const activeField = fields.find(f => f.id === activeFieldId) ?? fields[0];
+
+  const layoutPreview = addForm.width && addForm.height && addForm.partition_count
+    ? `${addForm.width}×${addForm.height} m · ${addForm.partition_count} ${addForm.partition_type}s`
+    : null;
+
   return (
-    <div className={styles.root}>
-      <header className={styles.navbar}>
-        <AgribotLogo size={36} textSize={20} dark={false} />
-        <button className={styles.logoutBtn} onClick={handleLogout}>
-          Logout
-        </button>
-      </header>
-      <main className={styles.main}>
-        <h1>Dashboard</h1>
-        <p>Coming soon.</p>
-      </main>
+    <div className="flex h-screen overflow-hidden bg-slate-50 font-sans">
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(v => !v)}
+      />
+
+      {/* Main area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top bar */}
+        <header className="h-14 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="md:hidden p-1.5 rounded-md text-slate-500 hover:bg-slate-100 cursor-pointer"
+            aria-label="Open menu"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+          <div className="hidden md:block">
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-widest">Overview</p>
+            <h1 className="text-lg font-bold text-slate-800 leading-tight">Dashboard</h1>
+          </div>
+          <h1 className="text-base font-bold text-slate-800 md:hidden">Dashboard</h1>
+          <button
+            onClick={handleLogout}
+            className="text-sm text-slate-600 border border-slate-200 hover:bg-slate-100 rounded-md px-3 py-1.5 transition-colors cursor-pointer"
+          >
+            Logout
+          </button>
+        </header>
+
+        {/* Scrollable content */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 space-y-5">
+
+          {/* ── Metrics ── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <MetricCard label="Total Weeds Detected" value={metrics.total_weeds?.toLocaleString()} />
+            <MetricCard label="Total Runs" value={metrics.total_runs} />
+            <MetricCard
+              label="Active Devices"
+              value={metrics.active_devices == null ? null : `${metrics.active_devices} / ${metrics.total_devices}`}
+            />
+            {/* Device status card */}
+            {(() => {
+              const dashIds = new Set(JSON.parse(localStorage.getItem('dashboardDeviceIds') ?? '[]'));
+              const pinned  = dashIds.size > 0 ? devices.filter(d => dashIds.has(d.id)) : devices;
+              return (
+                <div className="col-span-2 lg:col-span-1 bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Device Status</p>
+                  <div className="space-y-2 flex-1">
+                    {pinned.length === 0 ? (
+                      <p className="text-xs text-slate-400">No devices pinned to dashboard.</p>
+                    ) : pinned.map(d => (
+                      <div key={d.id} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${d.online ? 'bg-green-500' : 'bg-slate-300'}`} />
+                          <span className="text-sm text-slate-700 font-medium">{d.name ?? d.id}</span>
+                        </div>
+                        {statusTag(d.status, d.online)}
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => navigate('/device-manager')}
+                    className="mt-3 pt-2.5 border-t border-slate-100 text-xs text-green-700 hover:text-green-800 font-medium flex items-center gap-1 cursor-pointer w-fit"
+                  >
+                    View more
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* ── Field selector + Field stats ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Field selector */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Field</p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              {/* Select + star + default badge */}
+              <div className="flex w-full sm:w-[35%] items-center gap-2 border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50 min-w-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                </svg>
+                <select
+                  value={activeFieldId ?? ''}
+                  onChange={e => setActiveFieldId(e.target.value)}
+                  className="flex-1 bg-transparent text-sm text-slate-700 font-medium outline-none cursor-pointer"
+                >
+                  {[...fields].sort((a, b) => {
+                    if (a.id === defaultFieldId) return -1;
+                    if (b.id === defaultFieldId) return 1;
+                    if (favoriteIds.has(a.id) && !favoriteIds.has(b.id)) return -1;
+                    if (favoriteIds.has(b.id) && !favoriteIds.has(a.id)) return 1;
+                    return 0;
+                  }).map(f => (
+                    <option key={f.id} value={f.id}>
+                      {f.id === defaultFieldId ? '★ ' : favoriteIds.has(f.id) ? '☆ ' : ''}{f.name} — {f.width}×{f.height} m
+                    </option>
+                  ))}
+                </select>
+                {/* Favourite toggle */}
+                <button
+                  onClick={() => activeFieldId && toggleFavorite(activeFieldId)}
+                  title={favoriteIds.has(activeFieldId) ? 'Remove from favourites' : 'Add to favourites'}
+                  className="shrink-0 p-1 rounded hover:bg-slate-200 transition-colors cursor-pointer"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill={favoriteIds.has(activeFieldId) ? '#f59e0b' : 'none'} stroke={favoriteIds.has(activeFieldId) ? '#f59e0b' : '#94a3b8'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                  </svg>
+                </button>
+                {/* Default indicator */}
+                {activeFieldId === defaultFieldId && (
+                  <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Default</span>
+                )}
+              </div>
+              {/* Actions */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {activeFieldId !== defaultFieldId && (
+                  <button
+                    onClick={() => activeFieldId && setDefaultField(activeFieldId)}
+                    className="text-sm text-green-700 border border-green-300 rounded-lg px-3 py-2 hover:bg-green-50 transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    Set as default
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowManage(true)}
+                  className="text-sm text-slate-600 border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  Manage fields
+                </button>
+                <button
+                  onClick={() => setShowAddField(true)}
+                  className="text-sm text-white bg-green-700 hover:bg-green-800 rounded-lg px-4 py-2 transition-colors cursor-pointer font-medium"
+                >
+                  + Add field
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Field statistics card */}
+          {(() => {
+            const lastRun    = runsData.length ? runsData[runsData.length - 1] : null;
+            const prevRun    = runsData.length > 1 ? runsData[runsData.length - 2] : null;
+            const trend      = lastRun && prevRun
+              ? lastRun.weeds > prevRun.weeds ? 'up'
+              : lastRun.weeds < prevRun.weeds ? 'down'
+              : 'flat'
+              : null;
+            const trendDiff  = trend && trend !== 'flat' ? Math.abs(lastRun.weeds - prevRun.weeds) : null;
+            return (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col justify-between gap-4">
+                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+                  {activeField?.name ?? '—'} · Statistics
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  {/* Total runs */}
+                  <div className="flex flex-col gap-1">
+                    <p className="text-xs text-slate-400 font-medium">Total runs</p>
+                    <p className={`text-2xl font-bold ${metrics.total_runs == null ? 'text-slate-300' : 'text-slate-800'}`}>
+                      {metrics.total_runs ?? '—'}
+                    </p>
+                  </div>
+                  {/* Last run */}
+                  <div className="flex flex-col gap-1">
+                    <p className="text-xs text-slate-400 font-medium">Last run</p>
+                    <p className={`text-2xl font-bold ${lastRun ? 'text-slate-800' : 'text-slate-300'}`}>
+                      {lastRun ? lastRun.run : '—'}
+                    </p>
+                    {lastRun && (
+                      <p className="text-xs text-slate-400">{lastRun.weeds} weeds</p>
+                    )}
+                  </div>
+                  {/* Trend */}
+                  <div className="flex flex-col gap-1">
+                    <p className="text-xs text-slate-400 font-medium">Weed trend</p>
+                    {trend === null ? (
+                      <p className="text-2xl font-bold text-slate-300">—</p>
+                    ) : trend === 'flat' ? (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        <span className="text-sm font-semibold text-slate-500">Stable</span>
+                      </div>
+                    ) : trend === 'up' ? (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="18 15 12 9 6 15"/>
+                        </svg>
+                        <div>
+                          <span className="text-sm font-semibold text-red-500">Increasing</span>
+                          <p className="text-xs text-red-400">+{trendDiff} vs prev</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                        <div>
+                          <span className="text-sm font-semibold text-green-700">Decreasing</span>
+                          <p className="text-xs text-green-600">−{trendDiff} vs prev</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          </div>{/* end field selector + stats grid */}
+
+          {/* ── Charts ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            {/* Weed trends */}
+            <div className="lg:col-span-3 bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-1">History · 30 days</p>
+              <h2 className="text-sm font-semibold text-slate-800 mb-4">Weeds Detected Per Run</h2>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={runsData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="run" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                  <Line type="monotone" dataKey="weeds" stroke="#15803d" strokeWidth={2.5} dot={{ r: 4, fill: '#15803d' }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Species breakdown */}
+            <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-1">Latest Run</p>
+              <h2 className="text-sm font-semibold text-slate-800 mb-2">Weed Species Breakdown</h2>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie data={species} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={3} dataKey="value" />
+                  <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* ── Density Map ── */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+            <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-0.5">
+                  Weed Density Map · {activeField?.name} · 2×2 FT Grid
+                </p>
+                <h2 className="text-sm font-semibold text-slate-800">Latest Run</h2>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-slate-600">
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-400 inline-block" /> Low</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-orange-300 inline-block" /> Medium</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-400 inline-block" /> High</span>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <div
+                className="inline-grid gap-1"
+                style={{ gridTemplateColumns: `repeat(${grid[0]?.length ?? 15}, minmax(28px, 1fr))` }}
+              >
+                {grid.map((row, ri) =>
+                  row.map((density, ci) => (
+                    <div
+                      key={`${ri}-${ci}`}
+                      title={`Row ${ri + 1}, Col ${ci + 1} — ${density}`}
+                      className={`${DENSITY_CELL[density] ?? 'bg-slate-200'} rounded h-7 cursor-default transition-opacity hover:opacity-70`}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      {/* ── Manage fields modal ── */}
+      {showManage && (
+        <Modal onClose={() => setShowManage(false)}>
+          <h3 className="text-lg font-bold text-slate-800 mb-4">Manage fields</h3>
+          <div className="space-y-1 mb-6">
+            {fields.map(f => (
+              <div key={f.id} className="flex items-center justify-between py-3 border-b border-slate-100 last:border-0 gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <button
+                    onClick={() => toggleFavorite(f.id)}
+                    title={favoriteIds.has(f.id) ? 'Remove from favourites' : 'Add to favourites'}
+                    className="shrink-0 p-1 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill={favoriteIds.has(f.id) ? '#f59e0b' : 'none'} stroke={favoriteIds.has(f.id) ? '#f59e0b' : '#94a3b8'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                    </svg>
+                  </button>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-slate-800 truncate">{f.name}</p>
+                      {f.id === defaultFieldId && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium shrink-0">Default</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400">{f.width}×{f.height} m · {f.partition_count} {f.partition_type}s</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {f.id !== defaultFieldId && (
+                    <button
+                      onClick={() => setDefaultField(f.id)}
+                      className="text-xs text-green-700 border border-green-300 rounded-lg px-2 py-1.5 hover:bg-green-50 transition-colors cursor-pointer whitespace-nowrap"
+                    >
+                      Set default
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDeleteField(f.id)}
+                    className="text-xs text-red-500 border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-colors cursor-pointer"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+            {fields.length === 0 && <p className="text-sm text-slate-400 py-4 text-center">No fields yet.</p>}
+          </div>
+          <div className="flex justify-end gap-3">
+            <button onClick={() => setShowManage(false)} className="text-sm border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50 cursor-pointer">Close</button>
+            <button onClick={() => { setShowManage(false); setShowAddField(true); }} className="text-sm text-white bg-green-700 hover:bg-green-800 rounded-lg px-4 py-2 cursor-pointer font-medium">+ Add field</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Add field modal ── */}
+      {showAddField && (
+        <Modal onClose={() => { setShowAddField(false); setAddError(''); }}>
+          <h3 className="text-lg font-bold text-slate-800 mb-4">Add field</h3>
+          <form onSubmit={handleAddField} className="space-y-4">
+            <FormField label="Field name">
+              <input
+                type="text" placeholder="e.g. North Field"
+                value={addForm.name}
+                onChange={e => setAddForm(v => ({ ...v, name: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </FormField>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Width (m)">
+                <input type="number" min="1" max="9999" placeholder="e.g. 40"
+                  value={addForm.width}
+                  onChange={e => setAddForm(v => ({ ...v, width: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </FormField>
+              <FormField label="Height (m)">
+                <input type="number" min="1" max="9999" placeholder="e.g. 30"
+                  value={addForm.height}
+                  onChange={e => setAddForm(v => ({ ...v, height: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </FormField>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Partition type">
+                <select
+                  value={addForm.partition_type}
+                  onChange={e => setAddForm(v => ({ ...v, partition_type: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                >
+                  <option value="row">Row</option>
+                  <option value="column">Column</option>
+                </select>
+              </FormField>
+              <FormField label="Partition count">
+                <input type="number" min="1" max="100" placeholder="e.g. 6"
+                  value={addForm.partition_count}
+                  onChange={e => setAddForm(v => ({ ...v, partition_count: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </FormField>
+            </div>
+            {layoutPreview && (
+              <p className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
+                Layout preview: <strong>{layoutPreview}</strong>
+              </p>
+            )}
+            {addError && <p className="text-xs text-red-500">{addError}</p>}
+            <div className="flex justify-end gap-3 pt-1">
+              <button type="button" onClick={() => { setShowAddField(false); setAddError(''); }} className="text-sm border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50 cursor-pointer">Cancel</button>
+              <button type="submit" className="text-sm text-white bg-green-700 hover:bg-green-800 rounded-lg px-4 py-2 cursor-pointer font-medium">Create field</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Small reusable components ─────────────────────────────────────────────────
+function MetricCard({ label, value }) {
+  const display = value == null ? '—' : value;
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+      <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">{label}</p>
+      <p className={`text-3xl font-bold ${display === '—' ? 'text-slate-300' : 'text-slate-800'}`}>{display}</p>
+    </div>
+  );
+}
+
+function Modal({ children, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function FormField({ label, children }) {
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
+      {children}
     </div>
   );
 }
