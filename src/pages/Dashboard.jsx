@@ -4,41 +4,31 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Legend,
 } from 'recharts';
-import Sidebar from '../components/Sidebar';
+import PageLayout from '../components/PageLayout';
+import Modal from '../components/Modal';
+import FormField from '../components/FormField';
+import DensityGrid from '../components/DensityGrid';
+import { StatusBadge } from '../components/Badges';
+import useLocalStorage from '../hooks/useLocalStorage';
 import {
   getDashboardMetrics, getSpeciesBreakdown, getDensityMap, getRunsChart,
   getFields, createField, deleteField, getDevices,
 } from '../services/api';
 
 // ── Initial empty state (shown while API loads) ───────────────────────────────
-const MOCK_METRICS   = { total_weeds: null, total_runs: null, active_devices: null, total_devices: null };
-const MOCK_RUNS      = [];
-const MOCK_SPECIES   = [];
-const MOCK_GRID      = Array.from({ length: 10 }, () => Array.from({ length: 15 }, () => 'empty'));
-const MOCK_FIELDS    = [
+const MOCK_METRICS = { total_weeds: null, total_runs: null, active_devices: null, total_devices: null };
+const MOCK_RUNS    = [];
+const MOCK_SPECIES = [];
+const MOCK_GRID    = Array.from({ length: 10 }, () => Array.from({ length: 15 }, () => 'empty'));
+const MOCK_FIELDS  = [
   { id: '1', name: 'North Field',  width: 40, height: 30, partition_type: 'row',    partition_count: 6 },
   { id: '2', name: 'South Block',  width: 60, height: 20, partition_type: 'column', partition_count: 4 },
   { id: '3', name: 'East Plot',    width: 25, height: 25, partition_type: 'row',    partition_count: 5 },
 ];
 
-const DENSITY_CELL = {
-  low:    'bg-green-400',
-  medium: 'bg-orange-300',
-  high:   'bg-red-400',
-  empty:  'bg-slate-100',
-};
-
-function statusTag(status, online) {
-  if (!online) return <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Offline</span>;
-  if (status === 'working') return <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Working</span>;
-  return <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">Idle</span>;
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen]       = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const [fields,   setFields]   = useState(MOCK_FIELDS);
   const [devices,  setDevices]  = useState([]);
@@ -48,16 +38,11 @@ export default function Dashboard() {
   const [grid,     setGrid]     = useState(MOCK_GRID);
 
   // Persist default + favourites in localStorage
-  const [defaultFieldId, setDefaultFieldIdState] = useState(
-    () => localStorage.getItem('defaultFieldId') ?? MOCK_FIELDS[0].id
-  );
-  const [favoriteIds, setFavoriteIdsState] = useState(
-    () => new Set(JSON.parse(localStorage.getItem('favoriteFieldIds') ?? '[]'))
-  );
+  const [defaultFieldId, setDefaultFieldId] = useLocalStorage('defaultFieldId', MOCK_FIELDS[0].id);
+  const [favoriteFieldIds, setFavoriteFieldIds] = useLocalStorage('favoriteFieldIds', []);
+  const favoriteIds = new Set(favoriteFieldIds);
 
-  const [activeFieldId, setActiveFieldId] = useState(
-    () => localStorage.getItem('defaultFieldId') ?? MOCK_FIELDS[0].id
-  );
+  const [activeFieldId, setActiveFieldId] = useState(defaultFieldId ?? MOCK_FIELDS[0].id);
   const [showManage,    setShowManage]    = useState(false);
   const [showAddField,  setShowAddField]  = useState(false);
   const [addForm, setAddForm] = useState({ name: '', width: '', height: '', partition_type: 'row', partition_count: '' });
@@ -81,13 +66,12 @@ export default function Dashboard() {
       if (devs.status === 'fulfilled') setDevices(devs.value);
       if (flds.status === 'fulfilled') {
         setFields(flds.value);
-        // Ensure activeFieldId is valid after real fields load
         setActiveFieldId(prev => {
           const ids = flds.value.map(f => f.id);
           return ids.includes(prev) ? prev : (ids[0] ?? prev);
         });
       }
-    } catch (_) { /* keep mock data on error */ }
+    } catch (_) {}
   }, []);
 
   useEffect(() => { fetchAll(activeFieldId); }, [activeFieldId]);
@@ -100,17 +84,11 @@ export default function Dashboard() {
     return () => clearInterval(id);
   }, []);
 
-  function setDefaultField(id) {
-    localStorage.setItem('defaultFieldId', id);
-    setDefaultFieldIdState(id);
-  }
-
   function toggleFavorite(id) {
-    setFavoriteIdsState(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      localStorage.setItem('favoriteFieldIds', JSON.stringify([...next]));
-      return next;
+    setFavoriteFieldIds(prev => {
+      const set = new Set(prev);
+      set.has(id) ? set.delete(id) : set.add(id);
+      return [...set];
     });
   }
 
@@ -122,12 +100,10 @@ export default function Dashboard() {
   async function handleDeleteField(id) {
     try {
       await deleteField(id);
-      const updated = fields.filter(f => f.id !== id);
-      setFields(updated);
-      if (activeFieldId === id) setActiveFieldId(updated[0]?.id ?? null);
-    } catch (_) {
-      setFields(fields.filter(f => f.id !== id)); // optimistic for mock
-    }
+    } catch (_) {}
+    const updated = fields.filter(f => f.id !== id);
+    setFields(updated);
+    if (activeFieldId === id) setActiveFieldId(updated[0]?.id ?? null);
   }
 
   async function handleAddField(e) {
@@ -142,7 +118,6 @@ export default function Dashboard() {
       const created = await createField(body);
       setFields(prev => [...prev, created]);
     } catch (_) {
-      // mock fallback
       setFields(prev => [...prev, { id: Date.now().toString(), ...body }]);
     }
     setAddForm({ name: '', width: '', height: '', partition_type: 'row', partition_count: '' });
@@ -157,293 +132,217 @@ export default function Dashboard() {
     ? `${addForm.width}×${addForm.height} m · ${addForm.partition_count} ${addForm.partition_type}s`
     : null;
 
+  const logoutBtn = (
+    <button
+      onClick={handleLogout}
+      className="text-sm text-slate-600 border border-slate-200 hover:bg-slate-100 rounded-md px-3 py-1.5 transition-colors cursor-pointer"
+    >
+      Logout
+    </button>
+  );
+
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 font-sans">
-      <Sidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(v => !v)}
-      />
+    <PageLayout title="Dashboard" headerRight={logoutBtn}>
 
-      {/* Main area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top bar */}
-        <header className="h-14 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="md:hidden p-1.5 rounded-md text-slate-500 hover:bg-slate-100 cursor-pointer"
-            aria-label="Open menu"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
-            </svg>
-          </button>
-          <div className="hidden md:block">
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-widest">Overview</p>
-            <h1 className="text-lg font-bold text-slate-800 leading-tight">Dashboard</h1>
-          </div>
-          <h1 className="text-base font-bold text-slate-800 md:hidden">Dashboard</h1>
-          <button
-            onClick={handleLogout}
-            className="text-sm text-slate-600 border border-slate-200 hover:bg-slate-100 rounded-md px-3 py-1.5 transition-colors cursor-pointer"
-          >
-            Logout
-          </button>
-        </header>
-
-        {/* Scrollable content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 space-y-5">
-
-          {/* ── Metrics ── */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <MetricCard label="Total Weeds Detected" value={metrics.total_weeds?.toLocaleString()} />
-            <MetricCard label="Total Runs" value={metrics.total_runs} />
-            <MetricCard
-              label="Active Devices"
-              value={metrics.active_devices == null ? null : `${metrics.active_devices} / ${metrics.total_devices}`}
-            />
-            {/* Device status card */}
-            {(() => {
-              const dashIds = new Set(JSON.parse(localStorage.getItem('dashboardDeviceIds') ?? '[]'));
-              const pinned  = dashIds.size > 0 ? devices.filter(d => dashIds.has(d.id)) : devices;
-              return (
-                <div className="col-span-2 lg:col-span-1 bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Device Status</p>
-                  <div className="space-y-2 flex-1">
-                    {pinned.length === 0 ? (
-                      <p className="text-xs text-slate-400">No devices pinned to dashboard.</p>
-                    ) : pinned.map(d => (
-                      <div key={d.id} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${d.online ? 'bg-green-500' : 'bg-slate-300'}`} />
-                          <span className="text-sm text-slate-700 font-medium">{d.name ?? d.id}</span>
-                        </div>
-                        {statusTag(d.status, d.online)}
-                      </div>
-                    ))}
+      {/* ── Metrics ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard label="Total Weeds Detected" value={metrics.total_weeds?.toLocaleString()} />
+        <MetricCard label="Total Runs" value={metrics.total_runs} />
+        <MetricCard
+          label="Active Devices"
+          value={metrics.active_devices == null ? null : `${metrics.active_devices} / ${metrics.total_devices}`}
+        />
+        {/* Device status card */}
+        {(() => {
+          const dashIds = new Set(JSON.parse(localStorage.getItem('dashboardDeviceIds') ?? '[]'));
+          const pinned  = dashIds.size > 0 ? devices.filter(d => dashIds.has(d.id)) : devices;
+          return (
+            <div className="col-span-2 lg:col-span-1 bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col">
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Device Status</p>
+              <div className="space-y-2 flex-1">
+                {pinned.length === 0 ? (
+                  <p className="text-xs text-slate-400">No devices pinned to dashboard.</p>
+                ) : pinned.map(d => (
+                  <div key={d.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${d.online ? 'bg-green-500' : 'bg-slate-300'}`} />
+                      <span className="text-sm text-slate-700 font-medium">{d.name ?? d.id}</span>
+                    </div>
+                    <StatusBadge status={d.status} online={d.online} />
                   </div>
-                  <button
-                    onClick={() => navigate('/device-manager')}
-                    className="mt-3 pt-2.5 border-t border-slate-100 text-xs text-green-700 hover:text-green-800 font-medium flex items-center gap-1 cursor-pointer w-fit"
-                  >
-                    View more
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="9 18 15 12 9 6"/>
-                    </svg>
-                  </button>
-                </div>
-              );
-            })()}
-          </div>
-
-          {/* ── Field selector + Field stats ── */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Field selector */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Field</p>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              {/* Select + star + default badge */}
-              <div className="flex w-full sm:w-[35%] items-center gap-2 border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50 min-w-0">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                </svg>
-                <select
-                  value={activeFieldId ?? ''}
-                  onChange={e => setActiveFieldId(e.target.value)}
-                  className="flex-1 bg-transparent text-sm text-slate-700 font-medium outline-none cursor-pointer"
-                >
-                  {[...fields].sort((a, b) => {
-                    if (a.id === defaultFieldId) return -1;
-                    if (b.id === defaultFieldId) return 1;
-                    if (favoriteIds.has(a.id) && !favoriteIds.has(b.id)) return -1;
-                    if (favoriteIds.has(b.id) && !favoriteIds.has(a.id)) return 1;
-                    return 0;
-                  }).map(f => (
-                    <option key={f.id} value={f.id}>
-                      {f.id === defaultFieldId ? '★ ' : favoriteIds.has(f.id) ? '☆ ' : ''}{f.name} — {f.width}×{f.height} m
-                    </option>
-                  ))}
-                </select>
-                {/* Favourite toggle */}
-                <button
-                  onClick={() => activeFieldId && toggleFavorite(activeFieldId)}
-                  title={favoriteIds.has(activeFieldId) ? 'Remove from favourites' : 'Add to favourites'}
-                  className="shrink-0 p-1 rounded hover:bg-slate-200 transition-colors cursor-pointer"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill={favoriteIds.has(activeFieldId) ? '#f59e0b' : 'none'} stroke={favoriteIds.has(activeFieldId) ? '#f59e0b' : '#94a3b8'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                  </svg>
-                </button>
-                {/* Default indicator */}
-                {activeFieldId === defaultFieldId && (
-                  <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Default</span>
-                )}
+                ))}
               </div>
-              {/* Actions */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {activeFieldId !== defaultFieldId && (
-                  <button
-                    onClick={() => activeFieldId && setDefaultField(activeFieldId)}
-                    className="text-sm text-green-700 border border-green-300 rounded-lg px-3 py-2 hover:bg-green-50 transition-colors cursor-pointer whitespace-nowrap"
-                  >
-                    Set as default
-                  </button>
-                )}
-                <button
-                  onClick={() => setShowManage(true)}
-                  className="text-sm text-slate-600 border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors cursor-pointer"
-                >
-                  Manage fields
-                </button>
-                <button
-                  onClick={() => setShowAddField(true)}
-                  className="text-sm text-white bg-green-700 hover:bg-green-800 rounded-lg px-4 py-2 transition-colors cursor-pointer font-medium"
-                >
-                  + Add field
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Field statistics card */}
-          {(() => {
-            const lastRun    = runsData.length ? runsData[runsData.length - 1] : null;
-            const prevRun    = runsData.length > 1 ? runsData[runsData.length - 2] : null;
-            const trend      = lastRun && prevRun
-              ? lastRun.weeds > prevRun.weeds ? 'up'
-              : lastRun.weeds < prevRun.weeds ? 'down'
-              : 'flat'
-              : null;
-            const trendDiff  = trend && trend !== 'flat' ? Math.abs(lastRun.weeds - prevRun.weeds) : null;
-            return (
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col justify-between gap-4">
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
-                  {activeField?.name ?? '—'} · Statistics
-                </p>
-                <div className="grid grid-cols-3 gap-3">
-                  {/* Total runs */}
-                  <div className="flex flex-col gap-1">
-                    <p className="text-xs text-slate-400 font-medium">Total runs</p>
-                    <p className={`text-2xl font-bold ${metrics.total_runs == null ? 'text-slate-300' : 'text-slate-800'}`}>
-                      {metrics.total_runs ?? '—'}
-                    </p>
-                  </div>
-                  {/* Last run */}
-                  <div className="flex flex-col gap-1">
-                    <p className="text-xs text-slate-400 font-medium">Last run</p>
-                    <p className={`text-2xl font-bold ${lastRun ? 'text-slate-800' : 'text-slate-300'}`}>
-                      {lastRun ? lastRun.run : '—'}
-                    </p>
-                    {lastRun && (
-                      <p className="text-xs text-slate-400">{lastRun.weeds} weeds</p>
-                    )}
-                  </div>
-                  {/* Trend */}
-                  <div className="flex flex-col gap-1">
-                    <p className="text-xs text-slate-400 font-medium">Weed trend</p>
-                    {trend === null ? (
-                      <p className="text-2xl font-bold text-slate-300">—</p>
-                    ) : trend === 'flat' ? (
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="5" y1="12" x2="19" y2="12"/>
-                        </svg>
-                        <span className="text-sm font-semibold text-slate-500">Stable</span>
-                      </div>
-                    ) : trend === 'up' ? (
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="18 15 12 9 6 15"/>
-                        </svg>
-                        <div>
-                          <span className="text-sm font-semibold text-red-500">Increasing</span>
-                          <p className="text-xs text-red-400">+{trendDiff} vs prev</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="6 9 12 15 18 9"/>
-                        </svg>
-                        <div>
-                          <span className="text-sm font-semibold text-green-700">Decreasing</span>
-                          <p className="text-xs text-green-600">−{trendDiff} vs prev</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
-          </div>{/* end field selector + stats grid */}
-
-          {/* ── Charts ── */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-            {/* Weed trends */}
-            <div className="lg:col-span-3 bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-1">History · 30 days</p>
-              <h2 className="text-sm font-semibold text-slate-800 mb-4">Weeds Detected Per Run</h2>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={runsData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="run" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
-                  <Line type="monotone" dataKey="weeds" stroke="#15803d" strokeWidth={2.5} dot={{ r: 4, fill: '#15803d' }} activeDot={{ r: 6 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Species breakdown */}
-            <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-1">Latest Run</p>
-              <h2 className="text-sm font-semibold text-slate-800 mb-2">Weed Species Breakdown</h2>
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie data={species} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={3} dataKey="value" />
-                  <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* ── Density Map ── */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-0.5">
-                  Weed Density Map · {activeField?.name} · 2×2 FT Grid
-                </p>
-                <h2 className="text-sm font-semibold text-slate-800">Latest Run</h2>
-              </div>
-              <div className="flex items-center gap-3 text-xs text-slate-600">
-                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-400 inline-block" /> Low</span>
-                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-orange-300 inline-block" /> Medium</span>
-                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-400 inline-block" /> High</span>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <div
-                className="inline-grid gap-1"
-                style={{ gridTemplateColumns: `repeat(${grid[0]?.length ?? 15}, minmax(28px, 1fr))` }}
+              <button
+                onClick={() => navigate('/device-manager')}
+                className="mt-3 pt-2.5 border-t border-slate-100 text-xs text-green-700 hover:text-green-800 font-medium flex items-center gap-1 cursor-pointer w-fit"
               >
-                {grid.map((row, ri) =>
-                  row.map((density, ci) => (
-                    <div
-                      key={`${ri}-${ci}`}
-                      title={`Row ${ri + 1}, Col ${ci + 1} — ${density}`}
-                      className={`${DENSITY_CELL[density] ?? 'bg-slate-200'} rounded h-7 cursor-default transition-opacity hover:opacity-70`}
-                    />
-                  ))
-                )}
-              </div>
+                View more
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+              </button>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ── Field selector + Field stats ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Field selector */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Field</p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex w-full sm:w-[35%] items-center gap-2 border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50 min-w-0">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+              </svg>
+              <select
+                value={activeFieldId ?? ''}
+                onChange={e => setActiveFieldId(e.target.value)}
+                className="flex-1 bg-transparent text-sm text-slate-700 font-medium outline-none cursor-pointer"
+              >
+                {[...fields].sort((a, b) => {
+                  if (a.id === defaultFieldId) return -1;
+                  if (b.id === defaultFieldId) return 1;
+                  if (favoriteIds.has(a.id) && !favoriteIds.has(b.id)) return -1;
+                  if (favoriteIds.has(b.id) && !favoriteIds.has(a.id)) return 1;
+                  return 0;
+                }).map(f => (
+                  <option key={f.id} value={f.id}>
+                    {f.id === defaultFieldId ? '★ ' : favoriteIds.has(f.id) ? '☆ ' : ''}{f.name} — {f.width}×{f.height} m
+                  </option>
+                ))}
+              </select>
+              <StarButton active={favoriteIds.has(activeFieldId)} onClick={() => activeFieldId && toggleFavorite(activeFieldId)} title={favoriteIds.has(activeFieldId) ? 'Remove from favourites' : 'Add to favourites'} />
+              {activeFieldId === defaultFieldId && (
+                <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Default</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {activeFieldId !== defaultFieldId && (
+                <button
+                  onClick={() => activeFieldId && setDefaultFieldId(activeFieldId)}
+                  className="text-sm text-green-700 border border-green-300 rounded-lg px-3 py-2 hover:bg-green-50 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  Set as default
+                </button>
+              )}
+              <button
+                onClick={() => setShowManage(true)}
+                className="text-sm text-slate-600 border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Manage fields
+              </button>
+              <button
+                onClick={() => setShowAddField(true)}
+                className="text-sm text-white bg-green-700 hover:bg-green-800 rounded-lg px-4 py-2 transition-colors cursor-pointer font-medium"
+              >
+                + Add field
+              </button>
             </div>
           </div>
-        </main>
+        </div>
+
+        {/* Field statistics card */}
+        {(() => {
+          const lastRun   = runsData.length ? runsData[runsData.length - 1] : null;
+          const prevRun   = runsData.length > 1 ? runsData[runsData.length - 2] : null;
+          const trend     = lastRun && prevRun
+            ? lastRun.weeds > prevRun.weeds ? 'up' : lastRun.weeds < prevRun.weeds ? 'down' : 'flat'
+            : null;
+          const trendDiff = trend && trend !== 'flat' ? Math.abs(lastRun.weeds - prevRun.weeds) : null;
+          return (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col justify-between gap-4">
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+                {activeField?.name ?? '—'} · Statistics
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs text-slate-400 font-medium">Total runs</p>
+                  <p className={`text-2xl font-bold ${metrics.total_runs == null ? 'text-slate-300' : 'text-slate-800'}`}>
+                    {metrics.total_runs ?? '—'}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs text-slate-400 font-medium">Last run</p>
+                  <p className={`text-2xl font-bold ${lastRun ? 'text-slate-800' : 'text-slate-300'}`}>
+                    {lastRun ? lastRun.run : '—'}
+                  </p>
+                  {lastRun && <p className="text-xs text-slate-400">{lastRun.weeds} weeds</p>}
+                </div>
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs text-slate-400 font-medium">Weed trend</p>
+                  {trend === null ? (
+                    <p className="text-2xl font-bold text-slate-300">—</p>
+                  ) : trend === 'flat' ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      <span className="text-sm font-semibold text-slate-500">Stable</span>
+                    </div>
+                  ) : trend === 'up' ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                      <div>
+                        <span className="text-sm font-semibold text-red-500">Increasing</span>
+                        <p className="text-xs text-red-400">+{trendDiff} vs prev</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                      <div>
+                        <span className="text-sm font-semibold text-green-700">Decreasing</span>
+                        <p className="text-xs text-green-600">−{trendDiff} vs prev</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ── Charts ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-3 bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-1">History · 30 days</p>
+          <h2 className="text-sm font-semibold text-slate-800 mb-4">Weeds Detected Per Run</h2>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={runsData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="run" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
+              <Line type="monotone" dataKey="weeds" stroke="#15803d" strokeWidth={2.5} dot={{ r: 4, fill: '#15803d' }} activeDot={{ r: 6 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-1">Latest Run</p>
+          <h2 className="text-sm font-semibold text-slate-800 mb-2">Weed Species Breakdown</h2>
+          <ResponsiveContainer width="100%" height={200}>
+            <PieChart>
+              <Pie data={species} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={3} dataKey="value" />
+              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ── Density Map ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-0.5">
+              Weed Density Map · {activeField?.name} · 2×2 FT Grid
+            </p>
+            <h2 className="text-sm font-semibold text-slate-800">Latest Run</h2>
+          </div>
+        </div>
+        <DensityGrid grid={grid} cellSize={28} cellHeight={28} showLegend />
       </div>
 
       {/* ── Manage fields modal ── */}
@@ -454,15 +353,7 @@ export default function Dashboard() {
             {fields.map(f => (
               <div key={f.id} className="flex items-center justify-between py-3 border-b border-slate-100 last:border-0 gap-3">
                 <div className="flex items-center gap-2 min-w-0">
-                  <button
-                    onClick={() => toggleFavorite(f.id)}
-                    title={favoriteIds.has(f.id) ? 'Remove from favourites' : 'Add to favourites'}
-                    className="shrink-0 p-1 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill={favoriteIds.has(f.id) ? '#f59e0b' : 'none'} stroke={favoriteIds.has(f.id) ? '#f59e0b' : '#94a3b8'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                    </svg>
-                  </button>
+                  <StarButton active={favoriteIds.has(f.id)} onClick={() => toggleFavorite(f.id)} title={favoriteIds.has(f.id) ? 'Remove from favourites' : 'Add to favourites'} size={14} />
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-semibold text-slate-800 truncate">{f.name}</p>
@@ -476,7 +367,7 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2 shrink-0">
                   {f.id !== defaultFieldId && (
                     <button
-                      onClick={() => setDefaultField(f.id)}
+                      onClick={() => setDefaultFieldId(f.id)}
                       className="text-xs text-green-700 border border-green-300 rounded-lg px-2 py-1.5 hover:bg-green-50 transition-colors cursor-pointer whitespace-nowrap"
                     >
                       Set default
@@ -561,7 +452,7 @@ export default function Dashboard() {
           </form>
         </Modal>
       )}
-    </div>
+    </PageLayout>
   );
 }
 
@@ -576,21 +467,16 @@ function MetricCard({ label, value }) {
   );
 }
 
-function Modal({ children, onClose }) {
+function StarButton({ active, onClick, title, size = 16 }) {
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function FormField({ label, children }) {
-  return (
-    <div>
-      <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
-      {children}
-    </div>
+    <button onClick={onClick} title={title} className="shrink-0 p-1 rounded hover:bg-slate-200 transition-colors cursor-pointer">
+      <svg width={size} height={size} viewBox="0 0 24 24"
+        fill={active ? '#f59e0b' : 'none'}
+        stroke={active ? '#f59e0b' : '#94a3b8'}
+        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      >
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+      </svg>
+    </button>
   );
 }
