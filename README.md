@@ -1,16 +1,19 @@
-# React + Vite
+# Precision Weed Detection & Field Intelligence
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Monitor weed density, control your robot fleet, and access field analytics — all from one place.
 
-Currently, two official plugins are available:
+- Weed density mapping
+- Real-time ground vehicle control
+- Historical run analytics
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+<img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/7d05495d-b87b-4d4c-be74-6aaaee7dcf4c" />
+<img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/b63cd43f-5c41-400b-9e9b-d1bb62bd1d0a" />
+<img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/248285db-0134-4299-b482-7d210c104b89" />
+<img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/30957da0-3f7d-4a08-a28a-266a240fcc0a" />
+<img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/cca023f9-e32f-4573-883b-44a812a13f19" />
+<img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/efdb4612-41be-4f50-acde-ca61795187ff" />
 
-## React Compiler
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-## Expanding the ESLint configuration
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
