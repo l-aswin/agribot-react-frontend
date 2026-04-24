@@ -27,17 +27,23 @@ export default function DeviceManager() {
   const [deleting,     setDeleting]     = useState(false);
 
   // Create modal
-  const [showCreate,  setShowCreate]  = useState(false);
-  const [form,        setForm]        = useState(EMPTY_FORM);
-  const [nameStatus,  setNameStatus]  = useState(null); // null | 'checking' | 'available' | 'taken'
-  const [formErrors,  setFormErrors]  = useState({});
-  const [creating,    setCreating]    = useState(false);
+  const [showCreate,   setShowCreate]   = useState(false);
+  const [form,         setForm]         = useState(EMPTY_FORM);
+  const [nameStatus,   setNameStatus]   = useState(null); // null | 'checking' | 'available' | 'taken'
+  const [formErrors,   setFormErrors]   = useState({});
+  const [creating,     setCreating]     = useState(false);
+  const [createError,  setCreateError]  = useState(null);
   const debounceRef = useRef(null);
 
   useEffect(() => {
     getDevices()
       .then(data => { setDevices(data); setLoadingDevices(false); })
       .catch(() => setLoadingDevices(false));
+
+    const interval = setInterval(() => {
+      getDevices().then(data => setDevices(data)).catch(() => {});
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   // ── Filtering ──────────────────────────────────────────────────────────────
@@ -92,24 +98,19 @@ export default function DeviceManager() {
     if (Object.keys(errors).length) { setFormErrors(errors); return; }
 
     setCreating(true);
+    setCreateError(null);
     try {
       const created = await createDevice({ name: form.name, ...Object.fromEntries(CONFIG_FIELDS.map(f => [f.key, form[f.key]])) });
       setDevices(ds => [created, ...ds]);
-    } catch (_) {
-      const mock = {
-        id: `DEV-${String(devices.length + 1).padStart(3, '0')}`,
-        name: form.name,
-        connectivity: 'offline',
-        status: 'offline',
-        created_date: new Date().toISOString().slice(0, 10),
-      };
-      setDevices(ds => [mock, ...ds]);
+      setShowCreate(false);
+      setForm(EMPTY_FORM);
+      setNameStatus(null);
+      setFormErrors({});
+    } catch (err) {
+      setCreateError(err.message || 'Failed to create device. Please try again.');
+    } finally {
+      setCreating(false);
     }
-    setShowCreate(false);
-    setForm(EMPTY_FORM);
-    setNameStatus(null);
-    setFormErrors({});
-    setCreating(false);
   }
 
   function toggleFavDevice(id) {
@@ -136,6 +137,7 @@ export default function DeviceManager() {
     setForm(EMPTY_FORM);
     setNameStatus(null);
     setFormErrors({});
+    setCreateError(null);
     setShowCreate(true);
   }
 
@@ -390,6 +392,10 @@ export default function DeviceManager() {
                 </div>
               ))}
             </div>
+
+            {createError && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{createError}</p>
+            )}
 
             <div className="flex gap-3 justify-end pt-1">
               <button onClick={() => setShowCreate(false)}

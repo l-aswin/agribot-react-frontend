@@ -62,6 +62,11 @@ export default function DeviceControl() {
       if (d.status === 'fulfilled') setDevices(d.value);
       if (f.status === 'fulfilled') setFields(f.value);
     });
+
+    const interval = setInterval(() => {
+      getDevices().then(data => setDevices(data)).catch(() => {});
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -69,7 +74,7 @@ export default function DeviceControl() {
     getRoutes(selectedDev).then(setRoutes).catch(() => {});
   }, [selectedDev]);
 
-  const currentDevice = devices.find(d => d.id === selectedDev);
+  const currentDevice = devices.find(d => String(d.id) === selectedDev);
   const canStart = selectedDev && selectedField && currentDevice?.online && !running;
 
   function startPolling() {
@@ -159,10 +164,10 @@ export default function DeviceControl() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1">Device ID</label>
-            <select value={selectedDev} onChange={e => setSelectedDev(e.target.value)}
+            <select key={devices.map(d => `${d.id}:${d.online}`).join(',')} value={selectedDev} onChange={e => setSelectedDev(e.target.value)}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white cursor-pointer">
               <option value="">— Choose device —</option>
-              {devices.map(d => <option key={d.id} value={d.id}>{d.id}{!d.online ? ' (offline)' : ''}</option>)}
+              {devices.map(d => <option key={d.id} value={String(d.id)}>{d.name}{!d.online ? ' (offline)' : ''}</option>)}
             </select>
           </div>
           <div>
@@ -170,7 +175,7 @@ export default function DeviceControl() {
             <select value={selectedField} onChange={e => setSelectedField(e.target.value)}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white cursor-pointer">
               <option value="">— Choose field —</option>
-              {fields.map(f => <option key={f.id} value={f.id}>{f.name} — {f.width}×{f.height} m</option>)}
+              {fields.map(f => <option key={f.id} value={String(f.id)}>{f.name} — {f.width}×{f.height} m</option>)}
             </select>
           </div>
         </div>
@@ -178,7 +183,7 @@ export default function DeviceControl() {
         {currentDevice && (
           <div className="flex items-center gap-4 text-sm bg-slate-50 rounded-lg px-4 py-2.5 border border-slate-100">
             <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${currentDevice.online ? 'bg-green-500' : 'bg-slate-300'}`} />
-            <span className="font-semibold text-slate-700">{currentDevice.id}</span>
+            <span className="font-semibold text-slate-700">{currentDevice.name}</span>
             <span className="text-slate-500">Connectivity: <span className={currentDevice.online ? 'text-green-700 font-medium' : 'text-slate-400'}>{currentDevice.online ? 'Online' : 'Offline'}</span></span>
             <StatusBadge status={currentDevice.status} online={currentDevice.online} />
             {selectedField && <span className="text-slate-500 ml-auto">Field: {fields.find(f => f.id === selectedField)?.name}</span>}
@@ -187,7 +192,7 @@ export default function DeviceControl() {
 
         {selectedDev && (
           <p className={`text-xs mt-2 font-medium ${running ? 'text-green-700' : 'text-slate-500'}`}>
-            Controlling: {selectedDev} · {running ? 'Detection running…' : lastRun ? `Last run: ${lastRun}` : 'No runs yet'}
+            Controlling: {currentDevice?.name ?? selectedDev} · {running ? 'Detection running…' : lastRun ? `Last run: ${lastRun}` : 'No runs yet'}
           </p>
         )}
       </div>
