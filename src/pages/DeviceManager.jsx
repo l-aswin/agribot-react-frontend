@@ -6,7 +6,7 @@ import { CONFIG_FIELDS } from '../constants';
 import { getDevices, createDevice, deleteDevice, checkDeviceName } from '../services/api';
 
 const ROWS_OPTIONS = [8, 10, 20];
-const EMPTY_FORM = { name: '', device_id: '', server_url: '', serial_port: '', serial_baud_rate: '', camera_index: '', confidence_threshold: '' };
+const EMPTY_FORM = { name: '', device_id: '', device_secret: '', server_url: '', serial_port: '/dev/ttyUSB0', serial_baud_rate: '115200', camera_index: '0', confidence_threshold: '0.75', camera_vision_width_cm: '50' };
 
 export default function DeviceManager() {
   const [devices,        setDevices]        = useState([]);
@@ -263,9 +263,9 @@ export default function DeviceManager() {
                     <td className="px-5 py-3 font-medium text-slate-800">{d.name}</td>
                     <td className="px-5 py-3">
                       <span className="flex items-center gap-1.5">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${d.connectivity === 'online' ? 'bg-green-500' : 'bg-slate-300'}`} />
-                        <span className={d.connectivity === 'online' ? 'text-green-700' : 'text-slate-400'}>
-                          {d.connectivity === 'online' ? 'Online' : 'Offline'}
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${d.status === 'online' ? 'bg-green-500' : 'bg-slate-300'}`} />
+                        <span className={d.status === 'online' ? 'text-green-700' : 'text-slate-400'}>
+                          {d.status === 'online' ? 'Online' : 'Offline'}
                         </span>
                       </span>
                     </td>
@@ -277,7 +277,7 @@ export default function DeviceManager() {
                         {d.status.charAt(0).toUpperCase() + d.status.slice(1)}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-slate-500">{d.created_date}</td>
+                    <td className="px-5 py-3 text-slate-500">{d.created_at?.slice(0, 10)}</td>
                     <td className="px-3 py-3 text-center">
                       <button onClick={() => toggleFavDevice(d.id)} title={isFav ? 'Remove from favourites' : 'Add to favourites'}
                         className="p-1 rounded hover:bg-slate-100 cursor-pointer transition-colors">
