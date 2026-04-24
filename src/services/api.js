@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 function authHeaders() {
   const token = localStorage.getItem('access_token');
@@ -14,6 +14,11 @@ async function request(method, path, body) {
     headers: authHeaders(),
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
+  if (res.status === 401) {
+    localStorage.removeItem('access_token');
+    window.location.href = '/login';
+    return;
+  }
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Request failed');
   return data;

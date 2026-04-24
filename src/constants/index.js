@@ -27,10 +27,12 @@ export const CONFIG_KEYS = [
 ];
 
 export const CONFIG_FIELDS = [
-  { key: 'device_id',            label: 'Device ID',             placeholder: 'e.g. DEV-004' },
-  { key: 'server_url',           label: 'Server URL',            placeholder: 'e.g. http://192.168.1.18:5000' },
-  { key: 'serial_port',          label: 'Serial Port',           placeholder: 'e.g. /dev/ttyUSB0' },
-  { key: 'serial_baud_rate',     label: 'Serial Baud Rate',      placeholder: 'e.g. 115200' },
-  { key: 'camera_index',         label: 'Camera Index',          placeholder: 'e.g. 0' },
-  { key: 'confidence_threshold', label: 'Confidence Threshold',  placeholder: 'e.g. 0.75' },
+  { key: 'device_id',               label: 'Device ID',                placeholder: 'e.g. DEV-004' },
+  { key: 'device_secret',           label: 'Device Secret',            placeholder: 'e.g. my-secret' },
+  { key: 'server_url',              label: 'Server URL',               placeholder: 'e.g. http://192.168.1.18:5000' },
+  { key: 'serial_port',             label: 'Serial Port',              placeholder: 'e.g. /dev/ttyUSB0' },
+  { key: 'serial_baud_rate',        label: 'Serial Baud Rate',         placeholder: 'e.g. 115200' },
+  { key: 'camera_index',            label: 'Camera Index',             placeholder: 'e.g. 0' },
+  { key: 'confidence_threshold',    label: 'Confidence Threshold',     placeholder: 'e.g. 0.75' },
+  { key: 'camera_vision_width_cm',  label: 'Camera Vision Width (cm)', placeholder: 'e.g. 50' },
 ];

@@ -10,79 +10,78 @@ import FormField from '../components/FormField';
 import DensityGrid from '../components/DensityGrid';
 import { StatusBadge } from '../components/Badges';
 import useLocalStorage from '../hooks/useLocalStorage';
+import useErrorToast from '../hooks/useErrorToast';
 import {
   getDashboardMetrics, getSpeciesBreakdown, getDensityMap, getRunsChart,
   getFields, createField, deleteField, getDevices,
 } from '../services/api';
 
-// ── Initial empty state (shown while API loads) ───────────────────────────────
-const MOCK_METRICS = { total_weeds: null, total_runs: null, active_devices: null, total_devices: null };
-const MOCK_RUNS    = [];
-const MOCK_SPECIES = [];
-const MOCK_GRID    = Array.from({ length: 10 }, () => Array.from({ length: 15 }, () => 'empty'));
-const MOCK_FIELDS  = [
-  { id: '1', name: 'North Field',  width: 40, height: 30, partition_type: 'row',    partition_count: 6 },
-  { id: '2', name: 'South Block',  width: 60, height: 20, partition_type: 'column', partition_count: 4 },
-  { id: '3', name: 'East Plot',    width: 25, height: 25, partition_type: 'row',    partition_count: 5 },
-];
-
-// ── Main component ────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const navigate = useNavigate();
+  const [showError, errorToast] = useErrorToast();
 
-  const [fields,   setFields]   = useState(MOCK_FIELDS);
+  const [fields,   setFields]   = useState([]);
   const [devices,  setDevices]  = useState([]);
-  const [metrics,  setMetrics]  = useState(MOCK_METRICS);
-  const [runsData, setRunsData] = useState(MOCK_RUNS);
-  const [species,  setSpecies]  = useState(MOCK_SPECIES);
-  const [grid,     setGrid]     = useState(MOCK_GRID);
+  const [metrics,  setMetrics]  = useState({ total_weeds: null, total_runs: null, active_devices: null, total_devices: null });
+  const [runsData, setRunsData] = useState([]);
+  const [species,  setSpecies]  = useState([]);
+  const [grid,     setGrid]     = useState([]);
 
-  // Persist default + favourites in localStorage
-  const [defaultFieldId, setDefaultFieldId] = useLocalStorage('defaultFieldId', MOCK_FIELDS[0].id);
+  const [defaultFieldId, setDefaultFieldId] = useLocalStorage('defaultFieldId', null);
   const [favoriteFieldIds, setFavoriteFieldIds] = useLocalStorage('favoriteFieldIds', []);
   const favoriteIds = new Set(favoriteFieldIds);
 
-  const [activeFieldId, setActiveFieldId] = useState(defaultFieldId ?? MOCK_FIELDS[0].id);
+  const [activeFieldId, setActiveFieldId] = useState(defaultFieldId ?? null);
   const [showManage,    setShowManage]    = useState(false);
   const [showAddField,  setShowAddField]  = useState(false);
-  const [addForm, setAddForm] = useState({ name: '', width: '', height: '', partition_type: 'row', partition_count: '' });
+  const [addForm, setAddForm] = useState({ name: '', width: '', length: '', partition_type: 'row', partition_count: '' });
   const [addError, setAddError] = useState('');
 
-  // Fetch all dashboard data for the selected field
   const fetchAll = useCallback(async (fieldId) => {
-    try {
-      const [m, r, s, d, devs, flds] = await Promise.allSettled([
-        getDashboardMetrics(fieldId),
-        getRunsChart(fieldId),
-        getSpeciesBreakdown(fieldId),
-        getDensityMap(fieldId),
-        getDevices(),
-        getFields(),
-      ]);
-      if (m.status === 'fulfilled')    setMetrics(m.value);
-      if (r.status === 'fulfilled')    setRunsData(r.value);
-      if (s.status === 'fulfilled')    setSpecies(s.value);
-      if (d.status === 'fulfilled')    setGrid(d.value);
-      if (devs.status === 'fulfilled') setDevices(devs.value);
-      if (flds.status === 'fulfilled') {
-        setFields(flds.value);
-        setActiveFieldId(prev => {
-          const ids = flds.value.map(f => f.id);
-          return ids.includes(prev) ? prev : (ids[0] ?? prev);
-        });
-      }
-    } catch (_) {}
-  }, []);
+    const [m, r, s, d, devs, flds] = await Promise.allSettled([
+      getDashboardMetrics(fieldId),
+      getRunsChart(fieldId),
+      getSpeciesBreakdown(fieldId),
+      getDensityMap(fieldId),
+      getDevices(),
+      getFields(),
+    ]);
+    if (m.status === 'fulfilled')    setMetrics(m.value);
+    else showError(m.reason?.message || 'Failed to load metrics.');
+    if (r.status === 'fulfilled')    setRunsData(r.value);
+    else showError(r.reason?.message || 'Failed to load run history.');
+    if (s.status === 'fulfilled')    setSpecies(s.value);
+    else showError(s.reason?.message || 'Failed to load species breakdown.');
+    if (d.status === 'fulfilled')    setGrid(d.value);
+    else showError(d.reason?.message || 'Failed to load density map.');
+    if (devs.status === 'fulfilled') setDevices(devs.value);
+    else showError(devs.reason?.message || 'Failed to load devices.');
+    if (flds.status === 'fulfilled') {
+      setFields(flds.value);
+      setActiveFieldId(prev => {
+        const ids = flds.value.map(f => f.id);
+        return ids.includes(Number(prev)) ? Number(prev) : (ids[0] ?? prev);
+      });
+    } else {
+      showError(flds.reason?.message || 'Failed to load fields.');
+    }
+  }, [showError]);
 
   useEffect(() => { fetchAll(activeFieldId); }, [activeFieldId]);
 
   // Poll device status every 30s
   useEffect(() => {
     const id = setInterval(async () => {
-      try { const devs = await getDevices(); setDevices(devs); } catch (_) {}
+      try {
+        const devs = await getDevices();
+        setDevices(devs);
+      } catch (err) {
+        clearInterval(id);
+        showError(err.message || 'Lost connection while polling devices.');
+      }
     }, 30000);
     return () => clearInterval(id);
-  }, []);
+  }, [showError]);
 
   function toggleFavorite(id) {
     setFavoriteFieldIds(prev => {
@@ -100,7 +99,10 @@ export default function Dashboard() {
   async function handleDeleteField(id) {
     try {
       await deleteField(id);
-    } catch (_) {}
+    } catch (err) {
+      showError(err.message || 'Failed to delete field.');
+      return;
+    }
     const updated = fields.filter(f => f.id !== id);
     setFields(updated);
     if (activeFieldId === id) setActiveFieldId(updated[0]?.id ?? null);
@@ -108,19 +110,20 @@ export default function Dashboard() {
 
   async function handleAddField(e) {
     e.preventDefault();
-    const { name, width, height, partition_type, partition_count } = addForm;
-    if (!name || !width || !height || !partition_count) {
+    const { name, width, length, partition_type, partition_count } = addForm;
+    if (!name || !width || !length || !partition_count) {
       setAddError('All fields are required.');
       return;
     }
-    const body = { name, width: +width, height: +height, partition_type, partition_count: +partition_count };
+    const body = { name, width: +width, length: +length, partition_type, partition_count: +partition_count };
     try {
       const created = await createField(body);
       setFields(prev => [...prev, created]);
-    } catch (_) {
-      setFields(prev => [...prev, { id: Date.now().toString(), ...body }]);
+    } catch (err) {
+      showError(err.message || 'Failed to create field.');
+      return;
     }
-    setAddForm({ name: '', width: '', height: '', partition_type: 'row', partition_count: '' });
+    setAddForm({ name: '', width: '', length: '', partition_type: 'row', partition_count: '' });
     setAddError('');
     setShowAddField(false);
     setShowManage(false);
@@ -128,8 +131,8 @@ export default function Dashboard() {
 
   const activeField = fields.find(f => f.id === activeFieldId) ?? fields[0];
 
-  const layoutPreview = addForm.width && addForm.height && addForm.partition_count
-    ? `${addForm.width}×${addForm.height} m · ${addForm.partition_count} ${addForm.partition_type}s`
+  const layoutPreview = addForm.width && addForm.length && addForm.partition_count
+    ? `${addForm.width}×${addForm.length} m · ${addForm.partition_count} ${addForm.partition_type}s`
     : null;
 
   const logoutBtn = (
@@ -143,6 +146,7 @@ export default function Dashboard() {
 
   return (
     <PageLayout title="Dashboard" headerRight={logoutBtn}>
+      {errorToast}
 
       {/* ── Metrics ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -198,9 +202,10 @@ export default function Dashboard() {
               </svg>
               <select
                 value={activeFieldId ?? ''}
-                onChange={e => setActiveFieldId(e.target.value)}
+                onChange={e => setActiveFieldId(Number(e.target.value))}
                 className="flex-1 bg-transparent text-sm text-slate-700 font-medium outline-none cursor-pointer"
               >
+                {fields.length === 0 && <option value="">— No fields —</option>}
                 {[...fields].sort((a, b) => {
                   if (a.id === defaultFieldId) return -1;
                   if (b.id === defaultFieldId) return 1;
@@ -209,17 +214,17 @@ export default function Dashboard() {
                   return 0;
                 }).map(f => (
                   <option key={f.id} value={f.id}>
-                    {f.id === defaultFieldId ? '★ ' : favoriteIds.has(f.id) ? '☆ ' : ''}{f.name} — {f.width}×{f.height} m
+                    {f.id === defaultFieldId ? '★ ' : favoriteIds.has(f.id) ? '☆ ' : ''}{f.name} — {f.width}×{f.length} m
                   </option>
                 ))}
               </select>
               <StarButton active={favoriteIds.has(activeFieldId)} onClick={() => activeFieldId && toggleFavorite(activeFieldId)} title={favoriteIds.has(activeFieldId) ? 'Remove from favourites' : 'Add to favourites'} />
-              {activeFieldId === defaultFieldId && (
-                <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Default</span>
-              )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {activeFieldId !== defaultFieldId && (
+              {activeFieldId === defaultFieldId && activeFieldId && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Default</span>
+              )}
+              {activeFieldId !== defaultFieldId && activeFieldId && (
                 <button
                   onClick={() => activeFieldId && setDefaultFieldId(activeFieldId)}
                   className="text-sm text-green-700 border border-green-300 rounded-lg px-3 py-2 hover:bg-green-50 transition-colors cursor-pointer whitespace-nowrap"
@@ -361,7 +366,7 @@ export default function Dashboard() {
                         <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium shrink-0">Default</span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400">{f.width}×{f.height} m · {f.partition_count} {f.partition_type}s</p>
+                    <p className="text-xs text-slate-400">{f.width}×{f.length} m · {f.partition_count} {f.partition_type}s</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -412,10 +417,10 @@ export default function Dashboard() {
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500"
                 />
               </FormField>
-              <FormField label="Height (m)">
+              <FormField label="Length (m)">
                 <input type="number" min="1" max="9999" placeholder="e.g. 30"
-                  value={addForm.height}
-                  onChange={e => setAddForm(v => ({ ...v, height: e.target.value }))}
+                  value={addForm.length}
+                  onChange={e => setAddForm(v => ({ ...v, length: e.target.value }))}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500"
                 />
               </FormField>

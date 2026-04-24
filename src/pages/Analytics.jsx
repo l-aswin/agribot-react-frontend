@@ -7,23 +7,8 @@ import { WeedBadge } from '../components/Badges';
 import { formatDateTime } from '../utils/formatters';
 import { ROWS_OPTIONS } from '../constants';
 import { getRuns, getFields, getDevices } from '../services/api';
+import useErrorToast from '../hooks/useErrorToast';
 
-// ── Mock data ─────────────────────────────────────────────────────────────────
-const MOCK_RUNS = {
-  total: 23,
-  runs: [
-    { run_id: '47', run_number: 47, device_id: 'DEV-001', field: 'North Field', datetime: '2025-04-05T08:32:00', weeds: 124, duration: '58m' },
-    { run_id: '46', run_number: 46, device_id: 'DEV-001', field: 'North Field', datetime: '2025-04-03T14:10:00', weeds: 87,  duration: '42m' },
-    { run_id: '45', run_number: 45, device_id: 'DEV-002', field: 'South Block', datetime: '2025-04-02T09:05:00', weeds: 32,  duration: '31m' },
-    { run_id: '44', run_number: 44, device_id: 'DEV-001', field: 'North Field', datetime: '2025-03-30T11:22:00', weeds: 61,  duration: '38m' },
-    { run_id: '43', run_number: 43, device_id: 'DEV-002', field: 'East Plot',   datetime: '2025-03-28T07:44:00', weeds: 18,  duration: '22m' },
-    { run_id: '42', run_number: 42, device_id: 'DEV-001', field: 'North Field', datetime: '2025-03-26T10:15:00', weeds: 73,  duration: '44m' },
-    { run_id: '41', run_number: 41, device_id: 'DEV-003', field: 'South Block', datetime: '2025-03-24T15:50:00', weeds: 49,  duration: '35m' },
-    { run_id: '40', run_number: 40, device_id: 'DEV-002', field: 'East Plot',   datetime: '2025-03-22T08:00:00', weeds: 95,  duration: '51m' },
-  ],
-};
-const MOCK_FIELDS  = ['North Field', 'South Block', 'East Plot'];
-const MOCK_DEVICES = ['DEV-001', 'DEV-002', 'DEV-003'];
 const MONTH_OPTIONS = [
   { value: '',        label: 'All months' },
   { value: '2025-04', label: 'April 2025' },
@@ -33,26 +18,31 @@ const MONTH_OPTIONS = [
 
 export default function Analytics() {
   const navigate = useNavigate();
+  const [showError, errorToast] = useErrorToast();
 
   const [filters, setFilters] = useState({ device_id: '', field_id: '', month: '' });
   const [applied, setApplied] = useState({ device_id: '', field_id: '', month: '' });
   const [page,    setPage]    = useState(1);
   const [limit,   setLimit]   = useState(8);
-  const [data,    setData]    = useState(MOCK_RUNS);
-  const [fields,  setFields]  = useState(MOCK_FIELDS);
-  const [devices, setDevices] = useState(MOCK_DEVICES);
+  const [data,    setData]    = useState({ total: 0, runs: [] });
+  const [fields,  setFields]  = useState([]);
+  const [devices, setDevices] = useState([]);
 
   const fetchData = useCallback(async (f, pg, lim) => {
     try {
       const res = await getRuns({ ...f, page: pg, limit: lim });
       setData(res);
-    } catch (_) {}
-  }, []);
+    } catch (err) {
+      showError(err.message || 'Failed to load runs.');
+    }
+  }, [showError]);
 
   useEffect(() => {
     Promise.allSettled([getFields(), getDevices()]).then(([f, d]) => {
       if (f.status === 'fulfilled') setFields(f.value.map(x => x.name ?? x));
+      else showError(f.reason?.message || 'Failed to load fields.');
       if (d.status === 'fulfilled') setDevices(d.value.map(x => x.id ?? x));
+      else showError(d.reason?.message || 'Failed to load devices.');
     });
   }, []);
 
@@ -72,6 +62,7 @@ export default function Analytics() {
       title="Analytics"
       headerRight={<span className="text-sm font-semibold text-green-700">{data.total ?? 0} runs</span>}
     >
+      {errorToast}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
 
         {/* Filters */}
@@ -117,8 +108,8 @@ export default function Analytics() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100">
-                {['Run', 'Device ID', 'Field', 'Date & time', 'Weeds', 'Duration', ''].map(h => (
-                  <th key={h} className="text-left text-xs font-semibold text-slate-400 pb-2 pr-4 whitespace-nowrap">{h}</th>
+                {['Run', 'Device ID', 'Field', 'Date & time', 'Weeds', 'Duration', ''].map((h, i) => (
+                  <th key={i} className="text-left text-xs font-semibold text-slate-400 pb-2 pr-4 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>

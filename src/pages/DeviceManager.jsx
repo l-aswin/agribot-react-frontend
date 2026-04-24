@@ -4,11 +4,13 @@ import Modal from '../components/Modal';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { CONFIG_FIELDS } from '../constants';
 import { getDevices, createDevice, deleteDevice, checkDeviceName } from '../services/api';
+import useErrorToast from '../hooks/useErrorToast';
 
 const ROWS_OPTIONS = [8, 10, 20];
-const EMPTY_FORM = { name: '', device_id: '', server_url: '', serial_port: '', serial_baud_rate: '', camera_index: '', confidence_threshold: '' };
+const EMPTY_FORM = { name: '', device_id: '', device_secret: '', server_url: '', serial_port: '/dev/ttyUSB0', serial_baud_rate: '115200', camera_index: '0', confidence_threshold: '0.75', camera_vision_width_cm: '50' };
 
 export default function DeviceManager() {
+  const [showError, errorToast] = useErrorToast();
   const [devices,        setDevices]        = useState([]);
   const [loadingDevices, setLoadingDevices] = useState(true);
   const [nameFilter,     setNameFilter]     = useState('');
@@ -27,17 +29,29 @@ export default function DeviceManager() {
   const [deleting,     setDeleting]     = useState(false);
 
   // Create modal
-  const [showCreate,  setShowCreate]  = useState(false);
-  const [form,        setForm]        = useState(EMPTY_FORM);
-  const [nameStatus,  setNameStatus]  = useState(null); // null | 'checking' | 'available' | 'taken'
-  const [formErrors,  setFormErrors]  = useState({});
-  const [creating,    setCreating]    = useState(false);
+  const [showCreate,   setShowCreate]   = useState(false);
+  const [form,         setForm]         = useState(EMPTY_FORM);
+  const [nameStatus,   setNameStatus]   = useState(null); // null | 'checking' | 'available' | 'taken'
+  const [formErrors,   setFormErrors]   = useState({});
+  const [creating,     setCreating]     = useState(false);
+  const [createError,  setCreateError]  = useState(null);
   const debounceRef = useRef(null);
 
   useEffect(() => {
     getDevices()
       .then(data => { setDevices(data); setLoadingDevices(false); })
-      .catch(() => setLoadingDevices(false));
+      .catch(err => { setLoadingDevices(false); showError(err.message || 'Failed to load devices.'); });
+
+    const interval = setInterval(async () => {
+      try {
+        const data = await getDevices();
+        setDevices(data);
+      } catch (err) {
+        clearInterval(interval);
+        showError(err.message || 'Lost connection while polling devices.');
+      }
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   // ── Filtering ──────────────────────────────────────────────────────────────
@@ -56,9 +70,14 @@ export default function DeviceManager() {
   // ── Delete ─────────────────────────────────────────────────────────────────
   async function confirmDelete() {
     setDeleting(true);
-    try { await deleteDevice(deleteTarget.id); } catch (_) {}
-    setDevices(ds => ds.filter(d => d.id !== deleteTarget.id));
-    setDeleteTarget(null);
+    try {
+      await deleteDevice(deleteTarget.id);
+      setDevices(ds => ds.filter(d => d.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err) {
+      showError(err.message || 'Failed to delete device.');
+      setDeleteTarget(null);
+    }
     setDeleting(false);
   }
 
@@ -73,8 +92,9 @@ export default function DeviceManager() {
       try {
         const res = await checkDeviceName(val.trim());
         setNameStatus(res.available ? 'available' : 'taken');
-      } catch (_) {
-        setNameStatus('available');
+      } catch (err) {
+        setNameStatus(null);
+        showError(err.message || 'Failed to check device name availability.');
       }
     }, 500);
   }
@@ -92,24 +112,19 @@ export default function DeviceManager() {
     if (Object.keys(errors).length) { setFormErrors(errors); return; }
 
     setCreating(true);
+    setCreateError(null);
     try {
       const created = await createDevice({ name: form.name, ...Object.fromEntries(CONFIG_FIELDS.map(f => [f.key, form[f.key]])) });
       setDevices(ds => [created, ...ds]);
-    } catch (_) {
-      const mock = {
-        id: `DEV-${String(devices.length + 1).padStart(3, '0')}`,
-        name: form.name,
-        connectivity: 'offline',
-        status: 'offline',
-        created_date: new Date().toISOString().slice(0, 10),
-      };
-      setDevices(ds => [mock, ...ds]);
+      setShowCreate(false);
+      setForm(EMPTY_FORM);
+      setNameStatus(null);
+      setFormErrors({});
+    } catch (err) {
+      setCreateError(err.message || 'Failed to create device. Please try again.');
+    } finally {
+      setCreating(false);
     }
-    setShowCreate(false);
-    setForm(EMPTY_FORM);
-    setNameStatus(null);
-    setFormErrors({});
-    setCreating(false);
   }
 
   function toggleFavDevice(id) {
@@ -136,12 +151,14 @@ export default function DeviceManager() {
     setForm(EMPTY_FORM);
     setNameStatus(null);
     setFormErrors({});
+    setCreateError(null);
     setShowCreate(true);
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <PageLayout title="Device Manager">
+      {errorToast}
 
       {/* Filter bar */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
@@ -263,9 +280,9 @@ export default function DeviceManager() {
                     <td className="px-5 py-3 font-medium text-slate-800">{d.name}</td>
                     <td className="px-5 py-3">
                       <span className="flex items-center gap-1.5">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${d.connectivity === 'online' ? 'bg-green-500' : 'bg-slate-300'}`} />
-                        <span className={d.connectivity === 'online' ? 'text-green-700' : 'text-slate-400'}>
-                          {d.connectivity === 'online' ? 'Online' : 'Offline'}
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${d.status === 'online' ? 'bg-green-500' : 'bg-slate-300'}`} />
+                        <span className={d.status === 'online' ? 'text-green-700' : 'text-slate-400'}>
+                          {d.status === 'online' ? 'Online' : 'Offline'}
                         </span>
                       </span>
                     </td>
@@ -277,7 +294,7 @@ export default function DeviceManager() {
                         {d.status.charAt(0).toUpperCase() + d.status.slice(1)}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-slate-500">{d.created_date}</td>
+                    <td className="px-5 py-3 text-slate-500">{d.created_at?.slice(0, 10)}</td>
                     <td className="px-3 py-3 text-center">
                       <button onClick={() => toggleFavDevice(d.id)} title={isFav ? 'Remove from favourites' : 'Add to favourites'}
                         className="p-1 rounded hover:bg-slate-100 cursor-pointer transition-colors">
@@ -390,6 +407,10 @@ export default function DeviceManager() {
                 </div>
               ))}
             </div>
+
+            {createError && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{createError}</p>
+            )}
 
             <div className="flex gap-3 justify-end pt-1">
               <button onClick={() => setShowCreate(false)}
