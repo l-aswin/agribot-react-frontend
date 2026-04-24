@@ -4,11 +4,13 @@ import Modal from '../components/Modal';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { CONFIG_FIELDS } from '../constants';
 import { getDevices, createDevice, deleteDevice, checkDeviceName } from '../services/api';
+import useErrorToast from '../hooks/useErrorToast';
 
 const ROWS_OPTIONS = [8, 10, 20];
 const EMPTY_FORM = { name: '', device_id: '', device_secret: '', server_url: '', serial_port: '/dev/ttyUSB0', serial_baud_rate: '115200', camera_index: '0', confidence_threshold: '0.75', camera_vision_width_cm: '50' };
 
 export default function DeviceManager() {
+  const [showError, errorToast] = useErrorToast();
   const [devices,        setDevices]        = useState([]);
   const [loadingDevices, setLoadingDevices] = useState(true);
   const [nameFilter,     setNameFilter]     = useState('');
@@ -38,10 +40,16 @@ export default function DeviceManager() {
   useEffect(() => {
     getDevices()
       .then(data => { setDevices(data); setLoadingDevices(false); })
-      .catch(() => setLoadingDevices(false));
+      .catch(err => { setLoadingDevices(false); showError(err.message || 'Failed to load devices.'); });
 
-    const interval = setInterval(() => {
-      getDevices().then(data => setDevices(data)).catch(() => {});
+    const interval = setInterval(async () => {
+      try {
+        const data = await getDevices();
+        setDevices(data);
+      } catch (err) {
+        clearInterval(interval);
+        showError(err.message || 'Lost connection while polling devices.');
+      }
     }, 10000);
     return () => clearInterval(interval);
   }, []);
@@ -62,9 +70,14 @@ export default function DeviceManager() {
   // ── Delete ─────────────────────────────────────────────────────────────────
   async function confirmDelete() {
     setDeleting(true);
-    try { await deleteDevice(deleteTarget.id); } catch (_) {}
-    setDevices(ds => ds.filter(d => d.id !== deleteTarget.id));
-    setDeleteTarget(null);
+    try {
+      await deleteDevice(deleteTarget.id);
+      setDevices(ds => ds.filter(d => d.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err) {
+      showError(err.message || 'Failed to delete device.');
+      setDeleteTarget(null);
+    }
     setDeleting(false);
   }
 
@@ -79,8 +92,9 @@ export default function DeviceManager() {
       try {
         const res = await checkDeviceName(val.trim());
         setNameStatus(res.available ? 'available' : 'taken');
-      } catch (_) {
-        setNameStatus('available');
+      } catch (err) {
+        setNameStatus(null);
+        showError(err.message || 'Failed to check device name availability.');
       }
     }, 500);
   }
@@ -144,6 +158,7 @@ export default function DeviceManager() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <PageLayout title="Device Manager">
+      {errorToast}
 
       {/* Filter bar */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">

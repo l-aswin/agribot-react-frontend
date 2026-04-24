@@ -5,42 +5,20 @@ import PageLayout from '../components/PageLayout';
 import DensityGrid from '../components/DensityGrid';
 import Pagination from '../components/Pagination';
 import { formatDateTime } from '../utils/formatters';
-import { SPECIES_COLORS } from '../constants';
+import { SPECIES_COLORS, ROWS_OPTIONS } from '../constants';
 import { getRun, getRunDensityMap, getRunSpecies, getRunDeviceSummary, getRunDetectionLogs } from '../services/api';
-
-// ── Mock data ─────────────────────────────────────────────────────────────────
-const MOCK_RUN = { run_id: '43', run_number: 43, device_id: 'DEV-002', field: 'East Plot', datetime: '2025-03-28T07:44:00', duration: '22m', weeds: 18 };
-const MOCK_SPECIES = [
-  { name: 'Crabgrass', value: 58, fill: '#15803d' },
-  { name: 'Nutsedge',  value: 36, fill: '#f97316' },
-  { name: 'Purslane',  value: 19, fill: '#ef4444' },
-  { name: 'Other',     value: 11, fill: '#94a3b8' },
-];
-const MOCK_GRID = Array.from({ length: 6 }, () =>
-  Array.from({ length: 8 }, () => ['low', 'low', 'medium', 'high'][Math.floor(Math.random() * 4)])
-);
-const MOCK_DEVICE_SUMMARY = { device_id: 'DEV-001', connectivity: 'Online', total_weeds: 124, total_photos: 248, run_time: '58m 12s' };
-const MOCK_LOGS = {
-  total: 124,
-  logs: [
-    { id: 1, grid_pos: 'G(4,2)', original_url: null, annotated_url: null, species: 'Nutsedge',  lat: '13.0827', lon: '80.2707' },
-    { id: 2, grid_pos: 'G(2,1)', original_url: null, annotated_url: null, species: 'Crabgrass', lat: '13.0831', lon: '80.2712' },
-    { id: 3, grid_pos: 'G(7,3)', original_url: null, annotated_url: null, species: 'Purslane',  lat: '13.0819', lon: '80.2698' },
-    { id: 4, grid_pos: 'G(5,5)', original_url: null, annotated_url: null, species: 'Crabgrass', lat: '13.0824', lon: '80.2703' },
-  ],
-};
-
-const ROWS_OPTIONS = [5, 10, 20];
+import useErrorToast from '../hooks/useErrorToast';
 
 export default function RunDetail() {
   const { runId } = useParams();
   const navigate  = useNavigate();
+  const [showError, errorToast] = useErrorToast();
 
-  const [run,     setRun]     = useState(MOCK_RUN);
-  const [species, setSpecies] = useState(MOCK_SPECIES);
-  const [grid,    setGrid]    = useState(MOCK_GRID);
-  const [summary, setSummary] = useState(MOCK_DEVICE_SUMMARY);
-  const [logs,    setLogs]    = useState(MOCK_LOGS);
+  const [run,     setRun]     = useState(null);
+  const [species, setSpecies] = useState([]);
+  const [grid,    setGrid]    = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [logs,    setLogs]    = useState({ total: 0, logs: [] });
   const [page,    setPage]    = useState(1);
   const [limit,   setLimit]   = useState(10);
 
@@ -53,20 +31,36 @@ export default function RunDetail() {
       getRunDetectionLogs(runId, page, limit),
     ]).then(([r, s, g, sum, l]) => {
       if (r.status   === 'fulfilled') setRun(r.value);
+      else showError(r.reason?.message || 'Failed to load run details.');
       if (s.status   === 'fulfilled') setSpecies(s.value);
+      else showError(s.reason?.message || 'Failed to load species breakdown.');
       if (g.status   === 'fulfilled') setGrid(g.value);
+      else showError(g.reason?.message || 'Failed to load density map.');
       if (sum.status === 'fulfilled') setSummary(sum.value);
+      else showError(sum.reason?.message || 'Failed to load device summary.');
       if (l.status   === 'fulfilled') setLogs(l.value);
+      else showError(l.reason?.message || 'Failed to load detection logs.');
     });
   }, [runId, page, limit]);
 
   const totalPages = Math.ceil((logs.total ?? 0) / limit);
+
+  if (!run) {
+    return (
+      <PageLayout title="Run Detail">
+        {errorToast}
+        <p className="text-sm text-slate-400">Loading run details…</p>
+      </PageLayout>
+    );
+  }
 
   return (
     <PageLayout
       title={`Run #${run.run_number} · ${run.device_id}`}
       headerRight={<span className="text-sm font-semibold text-green-700">{run.weeds} weeds</span>}
     >
+      {errorToast}
+
       {/* Back */}
       <button onClick={() => navigate('/analytics')} className="flex items-center gap-1 text-sm text-green-700 hover:text-green-900 cursor-pointer">
         ← Back to Analytics
@@ -118,34 +112,36 @@ export default function RunDetail() {
       </div>
 
       {/* Device summary */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Device</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100">
-                {['Device ID', 'Connectivity', 'Total weeds detected', 'Total photos taken', 'Total run time'].map(h => (
-                  <th key={h} className="text-left text-xs font-semibold text-slate-400 pb-2 pr-6 whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="py-3 pr-6 font-semibold text-slate-700">{summary.device_id}</td>
-                <td className="py-3 pr-6">
-                  <span className="flex items-center gap-1.5 text-slate-700">
-                    <span className="w-2 h-2 rounded-full bg-green-500 inline-block"/>
-                    {summary.connectivity}
-                  </span>
-                </td>
-                <td className="py-3 pr-6 text-slate-700">{summary.total_weeds}</td>
-                <td className="py-3 pr-6 text-slate-700">{summary.total_photos}</td>
-                <td className="py-3 text-slate-700">{summary.run_time}</td>
-              </tr>
-            </tbody>
-          </table>
+      {summary && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Device</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  {['Device ID', 'Connectivity', 'Total weeds detected', 'Total photos taken', 'Total run time'].map(h => (
+                    <th key={h} className="text-left text-xs font-semibold text-slate-400 pb-2 pr-6 whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="py-3 pr-6 font-semibold text-slate-700">{summary.device_id}</td>
+                  <td className="py-3 pr-6">
+                    <span className="flex items-center gap-1.5 text-slate-700">
+                      <span className="w-2 h-2 rounded-full bg-green-500 inline-block"/>
+                      {summary.connectivity}
+                    </span>
+                  </td>
+                  <td className="py-3 pr-6 text-slate-700">{summary.total_weeds}</td>
+                  <td className="py-3 pr-6 text-slate-700">{summary.total_photos}</td>
+                  <td className="py-3 text-slate-700">{summary.run_time}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Detection logs */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
@@ -154,7 +150,7 @@ export default function RunDetail() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100">
-                {['Grid position', 'Original photo', 'Annotated photo', 'Species', 'Coordinates'].map(h => (
+                {['Grid position', 'Original photo', 'Annotated photo', 'Species'].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-slate-400 pb-2 pr-6 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -180,7 +176,6 @@ export default function RunDetail() {
                   <td className="py-3 pr-6">
                     <span className={`text-xs px-2 py-1 rounded-full text-white font-medium ${SPECIES_COLORS[log.species] ?? 'bg-slate-400'}`}>{log.species}</span>
                   </td>
-                  <td className="py-3 font-mono text-xs text-slate-600">{log.lat}°N {log.lon}°E</td>
                 </tr>
               ))}
             </tbody>

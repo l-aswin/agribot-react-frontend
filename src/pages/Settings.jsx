@@ -2,23 +2,11 @@ import { useState, useEffect } from 'react';
 import PageLayout from '../components/PageLayout';
 import { CONFIG_KEYS } from '../constants';
 import { getDevices, getDeviceSettings, sendDeviceSettings } from '../services/api';
-
-const MOCK_DEVICES = [
-  { id: 'DEV-001', online: true,  status: 'idle' },
-  { id: 'DEV-002', online: true,  status: 'idle' },
-  { id: 'DEV-003', online: false, status: 'offline' },
-];
-const MOCK_SETTINGS = {
-  device_id: 'DEV-001',
-  server_url: 'http://192.168.1.18:5000',
-  serial_port: '/dev/ttyUSB0',
-  serial_baud_rate: '115200',
-  camera_index: '0',
-  confidence_threshold: '0.75',
-};
+import useErrorToast from '../hooks/useErrorToast';
 
 export default function Settings() {
-  const [devices,     setDevices]     = useState(MOCK_DEVICES);
+  const [showError, errorToast] = useErrorToast();
+  const [devices,     setDevices]     = useState([]);
   const [selectedDev, setSelectedDev] = useState('');
   const [fetching,    setFetching]    = useState(false);
   const [sending,     setSending]     = useState(false);
@@ -28,7 +16,9 @@ export default function Settings() {
   const [banner,      setBanner]      = useState(null); // { type: 'success'|'error', msg }
 
   useEffect(() => {
-    getDevices().then(setDevices).catch(() => {});
+    getDevices()
+      .then(setDevices)
+      .catch(err => showError(err.message || 'Failed to load devices.'));
   }, []);
 
   const currentDev = devices.find(d => d.id === selectedDev);
@@ -41,8 +31,8 @@ export default function Settings() {
     try {
       const data = await getDeviceSettings(selectedDev);
       setConfig(data);
-    } catch (_) {
-      setConfig({ ...MOCK_SETTINGS, device_id: selectedDev });
+    } catch (err) {
+      showError(err.message || 'Failed to fetch device settings.');
     }
     setFetching(false);
   }
@@ -53,8 +43,8 @@ export default function Settings() {
     try {
       await sendDeviceSettings(selectedDev, config);
       setBanner({ type: 'success', msg: 'Settings sent successfully — device updated.' });
-    } catch (_) {
-      setBanner({ type: 'error', msg: 'Failed to send settings. Please try again.' });
+    } catch (err) {
+      setBanner({ type: 'error', msg: err.message || 'Failed to send settings. Please try again.' });
     }
     setSending(false);
   }
@@ -64,6 +54,7 @@ export default function Settings() {
 
   return (
     <PageLayout title="Settings">
+      {errorToast}
 
       {/* Device selector */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">

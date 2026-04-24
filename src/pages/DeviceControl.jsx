@@ -8,30 +8,16 @@ import {
   startDetection, stopDetection, pollDetectionStatus, pollDetectionGrid,
   sendMoveCommand,
 } from '../services/api';
+import useErrorToast from '../hooks/useErrorToast';
 
-// ── Mock data ─────────────────────────────────────────────────────────────────
-const MOCK_DEVICES = [
-  { id: 'DEV-001', online: true,  status: 'idle' },
-  { id: 'DEV-002', online: true,  status: 'idle' },
-  { id: 'DEV-003', online: false, status: 'offline' },
-];
-const MOCK_FIELDS = [
-  { id: '1', name: 'North Field', width: 40, height: 30 },
-  { id: '2', name: 'South Block', width: 60, height: 20 },
-  { id: '3', name: 'East Plot',   width: 25, height: 25 },
-];
-const MOCK_ROUTES = [
-  { id: 'r1', name: 'Route A', instructions: [
-    { command: 'move_forward', value: 3 }, { command: 'turn_right', value: 90 },
-    { command: 'move_forward', value: 3 }, { command: 'detect_weed', value: 2 },
-  ]},
-];
 const EMPTY_GRID = Array.from({ length: 8 }, () => Array.from({ length: 12 }, () => null));
 
 export default function DeviceControl() {
-  const [devices,       setDevices]       = useState(MOCK_DEVICES);
-  const [fields,        setFields]        = useState(MOCK_FIELDS);
-  const [routes,        setRoutes]        = useState(MOCK_ROUTES);
+  const [showError, errorToast] = useErrorToast();
+  const [devices,       setDevices]       = useState([]);
+  const [fields,        setFields]        = useState([]);
+  const [routes,        setRoutes]        = useState([]);
+  const [loading,       setLoading]       = useState(true); // true until first fetch completes
   const [selectedDev,   setSelectedDev]   = useState('');
   const [selectedField, setSelectedField] = useState('');
   const [detectionMode, setDetectionMode] = useState('grid');
@@ -60,18 +46,29 @@ export default function DeviceControl() {
   useEffect(() => {
     Promise.allSettled([getDevices(), getFields()]).then(([d, f]) => {
       if (d.status === 'fulfilled') setDevices(d.value);
+      else showError(d.reason?.message || 'Failed to load devices.');
       if (f.status === 'fulfilled') setFields(f.value);
+      else showError(f.reason?.message || 'Failed to load fields.');
+      setLoading(false);
     });
 
-    const interval = setInterval(() => {
-      getDevices().then(data => setDevices(data)).catch(() => {});
+    const interval = setInterval(async () => {
+      try {
+        const data = await getDevices();
+        setDevices(data);
+      } catch (err) {
+        clearInterval(interval);
+        showError(err.message || 'Lost connection while polling devices.');
+      }
     }, 10000);
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
     if (!selectedDev) return;
-    getRoutes(selectedDev).then(setRoutes).catch(() => {});
+    getRoutes(selectedDev)
+      .then(setRoutes)
+      .catch(err => showError(err.message || 'Failed to load routes.'));
   }, [selectedDev]);
 
   const currentDevice = devices.find(d => String(d.id) === selectedDev);
@@ -82,15 +79,25 @@ export default function DeviceControl() {
       try {
         const s = await pollDetectionStatus(selectedDev);
         setDetStatus(s);
-        if (s.status === 'completed' || s.status === 'stopped') {
+        if (s.status === 'finished' || s.status === 'stopped') {
           stopPolling();
           setRunning(false);
           setLastRun(s.finished_at ?? s.stopped_at ?? new Date().toISOString());
         }
-      } catch (_) {}
+      } catch (err) {
+        stopPolling();
+        setRunning(false);
+        showError(err.message || 'Lost connection while polling detection status.');
+      }
     }, 2000);
     gridPollRef.current = setInterval(async () => {
-      try { const g = await pollDetectionGrid(selectedDev); setLiveGrid(g); } catch (_) {}
+      try {
+        const g = await pollDetectionGrid(selectedDev);
+        setLiveGrid(g);
+      } catch (err) {
+        clearInterval(gridPollRef.current);
+        showError(err.message || 'Failed to fetch detection grid.');
+      }
     }, 3500);
   }
 
@@ -105,7 +112,12 @@ export default function DeviceControl() {
     const body = detectionMode === 'grid'
       ? { mode: 'grid', grid_x: +gridX, grid_y: +gridY, distance: +distance }
       : { mode: 'route', route_id: selectedRoute };
-    try { await startDetection(selectedDev, body); } catch (_) {}
+    try {
+      await startDetection(selectedDev, body);
+    } catch (err) {
+      console.error('Failed to start detection:', err);
+      return;
+    }
     setRunning(true);
     setDetStatus({ cells_total: 0, cells_scanned: 0, weeds_found: 0 });
     setLiveGrid(EMPTY_GRID);
@@ -113,7 +125,11 @@ export default function DeviceControl() {
   }
 
   async function handleStopDetection() {
-    try { await stopDetection(selectedDev); } catch (_) {}
+    try {
+      await stopDetection(selectedDev);
+    } catch (err) {
+      showError(err.message || 'Failed to stop detection.');
+    }
     stopPolling();
     setRunning(false);
     setLastRun(`Stopped by user at ${new Date().toLocaleTimeString()}`);
@@ -123,7 +139,11 @@ export default function DeviceControl() {
     if (!selectedDev || running) return;
     const value = command === 'forward' || command === 'backward' ? moveDistance : turnAngle;
     setMoveLoading(true);
-    try { await sendMoveCommand(selectedDev, command, value); } catch (_) {}
+    try {
+      await sendMoveCommand(selectedDev, command, value);
+    } catch (err) {
+      showError(err.message || 'Failed to send move command.');
+    }
     setMoveLoading(false);
   }
 
@@ -139,8 +159,10 @@ export default function DeviceControl() {
     try {
       const created = await createRoute({ name: routeName, device_id: selectedDev, instructions: routeSteps });
       setRoutes(r => [...r, created]);
-    } catch (_) {
-      setRoutes(r => [...r, { id: Date.now().toString(), name: routeName, instructions: routeSteps }]);
+    } catch (err) {
+      showError(err.message || 'Failed to save route.');
+      setSavingRoute(false);
+      return;
     }
     setRouteSteps([]);
     setRouteName('');
@@ -158,6 +180,7 @@ export default function DeviceControl() {
       title="Device Control"
       headerRight={<span className="text-sm font-semibold text-green-700">{devices.length} devices</span>}
     >
+      {errorToast}
       {/* Select device & field */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
         <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Select Device &amp; Field</p>
@@ -166,7 +189,7 @@ export default function DeviceControl() {
             <label className="block text-xs font-semibold text-slate-500 mb-1">Device ID</label>
             <select key={devices.map(d => `${d.id}:${d.online}`).join(',')} value={selectedDev} onChange={e => setSelectedDev(e.target.value)}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white cursor-pointer">
-              <option value="">— Choose device —</option>
+              <option value="">{loading ? 'Loading…' : '— Choose device —'}</option>
               {devices.map(d => <option key={d.id} value={String(d.id)}>{d.name}{!d.online ? ' (offline)' : ''}</option>)}
             </select>
           </div>
@@ -174,8 +197,8 @@ export default function DeviceControl() {
             <label className="block text-xs font-semibold text-slate-500 mb-1">Field</label>
             <select value={selectedField} onChange={e => setSelectedField(e.target.value)}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white cursor-pointer">
-              <option value="">— Choose field —</option>
-              {fields.map(f => <option key={f.id} value={String(f.id)}>{f.name} — {f.width}×{f.height} m</option>)}
+              <option value="">{loading ? 'Loading…' : '— Choose field —'}</option>
+              {fields.map(f => <option key={f.id} value={String(f.id)}>{f.name} — {f.width}×{f.length} m</option>)}
             </select>
           </div>
         </div>
