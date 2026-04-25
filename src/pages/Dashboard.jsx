@@ -16,9 +16,32 @@ import {
   getFields, createField, deleteField, getDevices,
 } from '../services/api';
 
-const MAX_GRID_DIM = 20; // never render more than 20×20 = 400 cells
+const MAX_GRID_DIM = 20;
+
+function toDensity(val) {
+  if (val === null || val === undefined) return null;
+  if (typeof val === 'string') return val;
+  if (val < 10)  return 'low';
+  if (val < 20)  return 'medium';
+  return 'high';
+}
+
+// Backend returns Array<2D_grid | null> — flatten each partition to 1D density row,
+// replace null partitions with grey (null-filled) rows of the same length.
+function processPartitionGrid(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const firstNonNull = raw.find(p => Array.isArray(p));
+  if (!firstNonNull) return [];
+  const cellCount = firstNonNull.flat().length;
+  return raw.map(partition =>
+    partition === null
+      ? Array(cellCount).fill(null)
+      : partition.flat().map(toDensity)
+  );
+}
 
 function downsampleGrid(grid) {
+  if (!Array.isArray(grid)) return [];
   const rows = grid.length;
   const cols = grid[0]?.length ?? 0;
   if (!rows || !cols) return grid;
@@ -63,6 +86,7 @@ export default function Dashboard() {
   const [favoriteFieldIds, setFavoriteFieldIds] = useLocalStorage('favoriteFieldIds', []);
   const favoriteIds = new Set(favoriteFieldIds);
 
+  const [loadingDensity, setLoadingDensity] = useState(false);
   const [activeFieldId, setActiveFieldId] = useState(defaultFieldId ?? null);
   const [showManage,    setShowManage]    = useState(false);
   const [showAddField,  setShowAddField]  = useState(false);
@@ -70,51 +94,67 @@ export default function Dashboard() {
   const [addError, setAddError] = useState('');
 
   const fetchAll = useCallback(async (fieldId, signal) => {
-    const [m, r, s, d, p, devs, flds] = await Promise.allSettled([
+    // ── Fast group: renders immediately ──────────────────────────────────────
+    const [m, r, s, devs, flds] = await Promise.allSettled([
       getDashboardMetrics(fieldId),
       getRunsChart(fieldId),
       getSpeciesBreakdown(fieldId),
-      getDensityMap(fieldId),
-      getFieldPartitionDensity(fieldId),
       getDevices(),
       getFields(),
     ]);
+
     if (signal?.aborted) return null;
-    if (m.status === 'fulfilled')    setMetrics(m.value);
+
+    if (m.status === 'fulfilled') setMetrics(m.value);
     else showError(m.reason?.message || 'Failed to load metrics.');
-    if (r.status === 'fulfilled')    setRunsData(r.value);
+
+    if (r.status === 'fulfilled') setRunsData(Array.isArray(r.value) ? r.value : []);
     else showError(r.reason?.message || 'Failed to load run history.');
-    if (s.status === 'fulfilled')    setSpecies(s.value);
+
+    if (s.status === 'fulfilled') setSpecies(Array.isArray(s.value) ? s.value : []);
     else showError(s.reason?.message || 'Failed to load species breakdown.');
-    if (d.status === 'fulfilled')    setGrid(downsampleGrid(d.value));
-    else showError(d.reason?.message || 'Failed to load density map.');
-    if (p.status === 'fulfilled') {
-      console.log('[partition-density] response:', p.value);
-      setPartitionGrid(p.value);
-    } else {
-      console.warn('[partition-density] failed:', p.reason);
-    }
-    if (devs.status === 'fulfilled') setDevices(devs.value);
+
+    if (devs.status === 'fulfilled') setDevices(Array.isArray(devs.value) ? devs.value : []);
     else showError(devs.reason?.message || 'Failed to load devices.');
+
+    let result = null;
     if (flds.status === 'fulfilled') {
-      setFields(flds.value);
-      return flds.value;
+      const safeFields = Array.isArray(flds.value) ? flds.value : [];
+      setFields(safeFields);
+      result = safeFields;
     } else {
       showError(flds.reason?.message || 'Failed to load fields.');
-      return null;
     }
+
+    // ── Slow group: density map shows its own spinner ─────────────────────────
+    setLoadingDensity(true);
+    const [d, p] = await Promise.allSettled([
+      getDensityMap(fieldId),
+      getFieldPartitionDensity(fieldId),
+    ]);
+
+    if (signal?.aborted) { setLoadingDensity(false); return result; }
+
+    if (d.status === 'fulfilled') setGrid(downsampleGrid(d.value));
+    else showError(d.reason?.message || 'Failed to load density map.');
+
+    if (p.status === 'fulfilled') setPartitionGrid(processPartitionGrid(p.value));
+
+    setLoadingDensity(false);
+    return result;
   }, [showError]);
 
   // On mount: fetch everything once and initialise the active field ID
   useEffect(() => {
     const controller = new AbortController();
-    fetchAll(defaultFieldId, controller.signal).then(fetchedFields => {
-      if (!fetchedFields || controller.signal.aborted) return;
-      const ids = fetchedFields.map(f => f.id);
-      setActiveFieldId(prev =>
-        ids.includes(Number(prev)) ? Number(prev) : (ids[0] ?? prev)
-      );
-    });
+    fetchAll(defaultFieldId, controller.signal)
+      .then(fetchedFields => {
+        if (!fetchedFields || controller.signal.aborted) return;
+        const ids = fetchedFields.map(f => f.id);
+        setActiveFieldId(prev =>
+          ids.includes(Number(prev)) ? Number(prev) : (ids[0] ?? prev)
+        );
+      });
     return () => controller.abort();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -209,13 +249,14 @@ export default function Dashboard() {
     <PageLayout title="Dashboard" headerRight={logoutBtn}>
       {errorToast}
 
+
       {/* ── Metrics ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Total Weeds Detected" value={metrics.total_weeds?.toLocaleString()} />
-        <MetricCard label="Total Runs" value={metrics.total_runs} />
+        <MetricCard label="Total Weeds Detected" value={metrics?.total_weeds?.toLocaleString()} />
+        <MetricCard label="Total Runs" value={metrics?.total_runs} />
         <MetricCard
           label="Active Devices"
-          value={metrics.active_devices == null ? null : `${metrics.active_devices} / ${metrics.total_devices}`}
+          value={metrics?.active_devices == null ? null : `${metrics.active_devices} / ${metrics.total_devices}`}
         />
         {/* Device status card */}
         {(() => {
@@ -325,8 +366,8 @@ export default function Dashboard() {
               <div className="grid grid-cols-3 gap-3">
                 <div className="flex flex-col gap-1">
                   <p className="text-xs text-slate-400 font-medium">Total runs</p>
-                  <p className={`text-2xl font-bold ${metrics.total_runs == null ? 'text-slate-300' : 'text-slate-800'}`}>
-                    {metrics.total_runs ?? '—'}
+                  <p className={`text-2xl font-bold ${metrics?.total_runs == null ? 'text-slate-300' : 'text-slate-800'}`}>
+                    {metrics?.total_runs ?? '—'}
                   </p>
                 </div>
                 <div className="flex flex-col gap-1">
@@ -410,7 +451,14 @@ export default function Dashboard() {
             </h2>
           </div>
         </div>
-        {partitionGrid.length > 0 ? (
+        {loadingDensity ? (
+          <div className="flex items-center justify-center py-10">
+            <svg className="animate-spin w-6 h-6 text-green-700" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+            </svg>
+          </div>
+        ) : partitionGrid.length > 0 ? (
           <div className="space-y-1">
             {partitionGrid.map((row, i) => (
               <div key={i} className="flex items-center gap-2">

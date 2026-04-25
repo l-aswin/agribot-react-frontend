@@ -17,7 +17,7 @@ async function request(method, path, body) {
   if (res.status === 401) {
     localStorage.removeItem('access_token');
     window.location.href = '/login';
-    return;
+    throw new Error('Session expired. Redirecting to login…');
   }
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Request failed');
