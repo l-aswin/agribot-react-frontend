@@ -12,11 +12,11 @@ import { StatusBadge } from '../components/Badges';
 import useLocalStorage from '../hooks/useLocalStorage';
 import useErrorToast from '../hooks/useErrorToast';
 import {
-  getDashboardMetrics, getSpeciesBreakdown, getDensityMap, getRunsChart,
+  getDashboardMetrics, getSpeciesBreakdown, getDensityMap, getFieldPartitionDensity, getRunsChart,
   getFields, createField, deleteField, getDevices,
 } from '../services/api';
 
-const MAX_GRID_DIM = 60; // never render more than 60×60 = 3600 cells
+const MAX_GRID_DIM = 20; // never render more than 20×20 = 400 cells
 
 function downsampleGrid(grid) {
   const rows = grid.length;
@@ -57,6 +57,7 @@ export default function Dashboard() {
   const [runsData, setRunsData] = useState([]);
   const [species,  setSpecies]  = useState([]);
   const [grid,     setGrid]     = useState([]);
+  const [partitionGrid, setPartitionGrid] = useState([]);
 
   const [defaultFieldId, setDefaultFieldId] = useLocalStorage('defaultFieldId', null);
   const [favoriteFieldIds, setFavoriteFieldIds] = useLocalStorage('favoriteFieldIds', []);
@@ -69,11 +70,12 @@ export default function Dashboard() {
   const [addError, setAddError] = useState('');
 
   const fetchAll = useCallback(async (fieldId, signal) => {
-    const [m, r, s, d, devs, flds] = await Promise.allSettled([
+    const [m, r, s, d, p, devs, flds] = await Promise.allSettled([
       getDashboardMetrics(fieldId),
       getRunsChart(fieldId),
       getSpeciesBreakdown(fieldId),
       getDensityMap(fieldId),
+      getFieldPartitionDensity(fieldId),
       getDevices(),
       getFields(),
     ]);
@@ -86,6 +88,12 @@ export default function Dashboard() {
     else showError(s.reason?.message || 'Failed to load species breakdown.');
     if (d.status === 'fulfilled')    setGrid(downsampleGrid(d.value));
     else showError(d.reason?.message || 'Failed to load density map.');
+    if (p.status === 'fulfilled') {
+      console.log('[partition-density] response:', p.value);
+      setPartitionGrid(p.value);
+    } else {
+      console.warn('[partition-density] failed:', p.reason);
+    }
     if (devs.status === 'fulfilled') setDevices(devs.value);
     else showError(devs.reason?.message || 'Failed to load devices.');
     if (flds.status === 'fulfilled') {
@@ -395,12 +403,27 @@ export default function Dashboard() {
         <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-0.5">
-              Weed Density Map · {activeField?.name} · 2×2 FT Grid
+              Weed Density Map · {activeField?.name}
             </p>
-            <h2 className="text-sm font-semibold text-slate-800">Latest Run</h2>
+            <h2 className="text-sm font-semibold text-slate-800">
+              Last run per {activeField?.partition_type ?? 'row'} · {activeField?.partition_count ?? '—'} {activeField?.partition_type ?? 'row'}s
+            </h2>
           </div>
         </div>
-        <DensityGrid grid={grid} cellSize={28} cellHeight={28} showLegend />
+        {partitionGrid.length > 0 ? (
+          <div className="space-y-1">
+            {partitionGrid.map((row, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-xs text-slate-400 w-14 shrink-0 text-right">
+                  {activeField?.partition_type === 'column' ? `Col ${i + 1}` : `Row ${i + 1}`}
+                </span>
+                <DensityGrid grid={[row]} cellSize={18} cellHeight={18} showLegend={i === 0} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <DensityGrid grid={grid} cellSize={28} cellHeight={28} showLegend />
+        )}
       </div>
 
       {/* ── Manage fields modal ── */}

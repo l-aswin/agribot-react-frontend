@@ -9,6 +9,18 @@ import { SPECIES_COLORS, ROWS_OPTIONS } from '../constants';
 import { getRun, getRunDensityMap, getRunSpecies, getRunDeviceSummary, getRunDetectionLogs } from '../services/api';
 import useErrorToast from '../hooks/useErrorToast';
 
+function mapCountsToDensity(rawGrid) {
+  return rawGrid.map(row =>
+    row.map(val => {
+      if (val === null || val === undefined) return null;
+      if (typeof val === 'string') return val;
+      if (val < 10)  return 'low';
+      if (val < 20)  return 'medium';
+      return 'high';
+    })
+  );
+}
+
 export default function RunDetail() {
   const { runId } = useParams();
   const navigate  = useNavigate();
@@ -35,7 +47,7 @@ export default function RunDetail() {
       else showError(r.reason?.message || 'Failed to load run details.');
       if (s.status   === 'fulfilled') setSpecies(s.value);
       else showError(s.reason?.message || 'Failed to load species breakdown.');
-      if (g.status   === 'fulfilled') setGrid(g.value);
+      if (g.status   === 'fulfilled') setGrid(mapCountsToDensity(g.value));
       else showError(g.reason?.message || 'Failed to load density map.');
       if (sum.status === 'fulfilled') setSummary(sum.value);
       else showError(sum.reason?.message || 'Failed to load device summary.');

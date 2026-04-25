@@ -31,9 +31,7 @@ export default function DeviceControl() {
   const [selectedDev,   setSelectedDev]   = useState('');
   const [selectedField, setSelectedField] = useState('');
   const [detectionMode, setDetectionMode] = useState('grid');
-  const [distance,      setDistance]      = useState('0');
-  const [startCol,      setStartCol]      = useState('1');
-  const [startRow,      setStartRow]      = useState('1');
+  const [currentPath,   setCurrentPath]   = useState('1');
   const [selectedRoute, setSelectedRoute] = useState('');
   const [lastRun,       setLastRun]       = useState(null);
   const [startError,    setStartError]    = useState(null);
@@ -89,18 +87,24 @@ export default function DeviceControl() {
 
   useEffect(() => {
     setStartError(null);
-  }, [selectedDev, selectedField, detectionMode, distance, selectedRoute]);
+  }, [selectedDev, selectedField, detectionMode, currentPath, selectedRoute]);
 
   const currentDevice = devices.find(d => String(d.id) === selectedDev);
   const selectedFieldObj = fields.find(f => String(f.id) === selectedField);
-  const GRID_SIZE = 30;
+  const GRID_SIZE = 20;
   const partitionType = selectedFieldObj?.partition_type ?? 'row';
-  const gridCols = selectedFieldObj ? GRID_SIZE : 12;
-  const gridRows = selectedFieldObj ? GRID_SIZE : 8;
+  const pathCount = selectedFieldObj?.partition_count ?? GRID_SIZE;
+  const gridCols = selectedFieldObj ? (partitionType === 'row' ? GRID_SIZE : 1) : 12;
+  const gridRows = selectedFieldObj ? (partitionType === 'row' ? 1 : GRID_SIZE) : 8;
   const cellWidthM  = selectedFieldObj ? (selectedFieldObj.width  / GRID_SIZE).toFixed(2) : null;
   const cellLengthM = selectedFieldObj ? (selectedFieldObj.length / GRID_SIZE).toFixed(2) : null;
+  const forwardDistanceCm = selectedFieldObj
+    ? Math.round((partitionType === 'row' ? selectedFieldObj.length : selectedFieldObj.width) * 100)
+    : 0;
+  const startColVal = partitionType === 'row' ? 0 : +currentPath - 1;
+  const startRowVal = partitionType === 'row' ? +currentPath - 1 : 0;
 
-  const isGridReady = detectionMode === 'grid' && +distance >= 0;
+  const isGridReady = detectionMode === 'grid' && +currentPath >= 1;
   const isRouteReady = detectionMode === 'route' && !!selectedRoute;
   const isModeReady = isGridReady || isRouteReady;
   const canStart = selectedDev && selectedField && currentDevice?.online && !running && isModeReady;
@@ -146,7 +150,7 @@ export default function DeviceControl() {
       field_id: selectedField,
       partition_type: partitionType,
       ...(detectionMode === 'grid'
-        ? { mode: 'grid', grid_x: gridCols, grid_y: gridRows, distance: +distance, start_col: +startCol - 1, start_row: +startRow - 1 }
+        ? { mode: 'grid', grid_x: gridCols, grid_y: gridRows, distance: forwardDistanceCm, start_col: startColVal, start_row: startRowVal }
         : { mode: 'route', route_id: selectedRoute }),
     };
     try {
@@ -279,14 +283,12 @@ export default function DeviceControl() {
 
               {detectionMode === 'grid' ? (
                 <div className="space-y-3">
-                  <LabeledInput label="Starting point (metres)" placeholder="e.g. 0" type="number" value={distance} onChange={setDistance} min={0} />
-                  <div className="grid grid-cols-2 gap-3">
-                    <LabeledInput label="Start column" type="number" value={startCol} onChange={setStartCol} min={1} />
-                    <LabeledInput label="Start row" type="number" value={startRow} onChange={setStartRow} min={1} />
-                  </div>
+                  <LabeledInput label="Current path" placeholder="e.g. 1" type="number" value={currentPath} onChange={setCurrentPath} min={1} />
                   {selectedFieldObj && (
                     <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
-                      Grid: <strong>{gridCols} × {gridRows}</strong> cells &nbsp;·&nbsp; Cell: <strong>{cellWidthM} m × {cellLengthM} m</strong> &nbsp;·&nbsp; Scan order: <strong>{partitionType}s</strong>
+                      Grid: <strong>{gridCols} × {gridRows}</strong> cells &nbsp;·&nbsp; Cell: <strong>{cellWidthM} m × {cellLengthM} m</strong>
+                      &nbsp;·&nbsp; Scan order: <strong>{partitionType}s</strong>
+                      &nbsp;·&nbsp; Forward: <strong>{forwardDistanceCm} cm</strong>
                     </p>
                   )}
                 </div>
@@ -325,7 +327,7 @@ export default function DeviceControl() {
                 ) : !isModeReady ? (
                   <p className="text-xs text-slate-500 mt-1.5 text-center">
                     {detectionMode === 'grid'
-                      ? 'Please enter valid grid dimensions and starting point.'
+                      ? 'Please enter a valid current path number.'
                       : 'Please select a route.'}
                   </p>
                 ) : null
@@ -338,7 +340,11 @@ export default function DeviceControl() {
               </p>
               <div className="mb-3">
                 <DensityGrid
-                  grid={liveGrid}
+                  grid={liveGrid.map((row, ri) =>
+                    row.map((cell, ci) =>
+                      ri * gridCols + ci < (detStatus?.cells_scanned ?? 0) ? cell : null
+                    )
+                  )}
                   cellSize={18}
                   cellHeight={20}
                   showLegend

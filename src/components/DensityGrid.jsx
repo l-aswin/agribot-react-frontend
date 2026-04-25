@@ -1,6 +1,6 @@
 import { DENSITY_COLORS } from '../constants';
 
-const MAX_DIM = 60;
+const MAX_DIM = 20;
 const RANK = { high: 3, medium: 2, low: 1, empty: 0, null: -1 };
 
 function downsample(grid) {

@@ -56,6 +56,7 @@ export const checkDeviceName  = (name)   => request('GET',    `/api/devices/chec
 export const getDashboardMetrics  = (fieldId) => request('GET', `/api/dashboard/metrics?field_id=${fieldId ?? ''}`);
 export const getSpeciesBreakdown  = (fieldId) => request('GET', `/api/dashboard/species-breakdown?field_id=${fieldId ?? ''}&run_id=latest`);
 export const getDensityMap        = (fieldId) => request('GET', `/api/dashboard/density-map?field_id=${fieldId ?? ''}&run_id=latest`);
+export const getFieldPartitionDensity = (fieldId) => request('GET', `/api/dashboard/partition-density?field_id=${fieldId ?? ''}`);
 export const getRunsChart         = (fieldId, period = '30d') => request('GET', `/api/dashboard/runs-chart?field_id=${fieldId ?? ''}&period=${period}`);
 
 // ── Analytics ─────────────────────────────────────────────────────────────────
