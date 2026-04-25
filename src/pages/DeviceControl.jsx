@@ -10,7 +10,17 @@ import {
 } from '../services/api';
 import useErrorToast from '../hooks/useErrorToast';
 
-const EMPTY_GRID = Array.from({ length: 8 }, () => Array.from({ length: 12 }, () => null));
+function mapCountsToDensity(rawGrid) {
+  return rawGrid.map(row =>
+    row.map(val => {
+      if (val === null || val === undefined) return null;
+      if (typeof val === 'string') return val;
+      if (val < 10)  return 'low';
+      if (val < 20)  return 'medium';
+      return 'high';
+    })
+  );
+}
 
 export default function DeviceControl() {
   const [showError, errorToast] = useErrorToast();
@@ -21,15 +31,16 @@ export default function DeviceControl() {
   const [selectedDev,   setSelectedDev]   = useState('');
   const [selectedField, setSelectedField] = useState('');
   const [detectionMode, setDetectionMode] = useState('grid');
-  const [gridX,         setGridX]         = useState('');
-  const [gridY,         setGridY]         = useState('');
-  const [distance,      setDistance]      = useState('');
+  const [distance,      setDistance]      = useState('0');
+  const [startCol,      setStartCol]      = useState('1');
+  const [startRow,      setStartRow]      = useState('1');
   const [selectedRoute, setSelectedRoute] = useState('');
   const [lastRun,       setLastRun]       = useState(null);
+  const [startError,    setStartError]    = useState(null);
 
   const [running,       setRunning]       = useState(false);
   const [detStatus,     setDetStatus]     = useState(null);
-  const [liveGrid,      setLiveGrid]      = useState(EMPTY_GRID);
+  const [liveGrid,      setLiveGrid]      = useState(() => Array.from({ length: 30 }, () => Array(30).fill(null)));
   const statusPollRef   = useRef(null);
   const gridPollRef     = useRef(null);
 
@@ -52,13 +63,18 @@ export default function DeviceControl() {
       setLoading(false);
     });
 
+    let inFlight = false;
     const interval = setInterval(async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const data = await getDevices();
         setDevices(data);
       } catch (err) {
         clearInterval(interval);
         showError(err.message || 'Lost connection while polling devices.');
+      } finally {
+        inFlight = false;
       }
     }, 10000);
     return () => clearInterval(interval);
@@ -71,10 +87,26 @@ export default function DeviceControl() {
       .catch(err => showError(err.message || 'Failed to load routes.'));
   }, [selectedDev]);
 
+  useEffect(() => {
+    setStartError(null);
+  }, [selectedDev, selectedField, detectionMode, distance, selectedRoute]);
+
   const currentDevice = devices.find(d => String(d.id) === selectedDev);
-  const canStart = selectedDev && selectedField && currentDevice?.online && !running;
+  const selectedFieldObj = fields.find(f => String(f.id) === selectedField);
+  const GRID_SIZE = 30;
+  const partitionType = selectedFieldObj?.partition_type ?? 'row';
+  const gridCols = selectedFieldObj ? GRID_SIZE : 12;
+  const gridRows = selectedFieldObj ? GRID_SIZE : 8;
+  const cellWidthM  = selectedFieldObj ? (selectedFieldObj.width  / GRID_SIZE).toFixed(2) : null;
+  const cellLengthM = selectedFieldObj ? (selectedFieldObj.length / GRID_SIZE).toFixed(2) : null;
+
+  const isGridReady = detectionMode === 'grid' && +distance >= 0;
+  const isRouteReady = detectionMode === 'route' && !!selectedRoute;
+  const isModeReady = isGridReady || isRouteReady;
+  const canStart = selectedDev && selectedField && currentDevice?.online && !running && isModeReady;
 
   function startPolling() {
+    stopPolling();
     statusPollRef.current = setInterval(async () => {
       try {
         const s = await pollDetectionStatus(selectedDev);
@@ -93,7 +125,7 @@ export default function DeviceControl() {
     gridPollRef.current = setInterval(async () => {
       try {
         const g = await pollDetectionGrid(selectedDev);
-        setLiveGrid(g);
+        setLiveGrid(mapCountsToDensity(g));
       } catch (err) {
         clearInterval(gridPollRef.current);
         showError(err.message || 'Failed to fetch detection grid.');
@@ -109,18 +141,25 @@ export default function DeviceControl() {
   useEffect(() => () => stopPolling(), []);
 
   async function handleStartDetection() {
-    const body = detectionMode === 'grid'
-      ? { mode: 'grid', grid_x: +gridX, grid_y: +gridY, distance: +distance }
-      : { mode: 'route', route_id: selectedRoute };
+    setStartError(null);
+    const body = {
+      field_id: selectedField,
+      partition_type: partitionType,
+      ...(detectionMode === 'grid'
+        ? { mode: 'grid', grid_x: gridCols, grid_y: gridRows, distance: +distance, start_col: +startCol - 1, start_row: +startRow - 1 }
+        : { mode: 'route', route_id: selectedRoute }),
+    };
     try {
       await startDetection(selectedDev, body);
     } catch (err) {
+      setStartError(err.message || 'Failed to start detection.');
       console.error('Failed to start detection:', err);
       return;
     }
+    const emptyGrid = Array.from({ length: gridRows }, () => Array(gridCols).fill(null));
     setRunning(true);
     setDetStatus({ cells_total: 0, cells_scanned: 0, weeds_found: 0 });
-    setLiveGrid(EMPTY_GRID);
+    setLiveGrid(emptyGrid);
     startPolling();
   }
 
@@ -209,7 +248,7 @@ export default function DeviceControl() {
             <span className="font-semibold text-slate-700">{currentDevice.name}</span>
             <span className="text-slate-500">Connectivity: <span className={currentDevice.online ? 'text-green-700 font-medium' : 'text-slate-400'}>{currentDevice.online ? 'Online' : 'Offline'}</span></span>
             <StatusBadge status={currentDevice.status} online={currentDevice.online} />
-            {selectedField && <span className="text-slate-500 ml-auto">Field: {fields.find(f => f.id === selectedField)?.name}</span>}
+            {selectedField && <span className="text-slate-500 ml-auto">Field: {fields.find(f => String(f.id) === selectedField)?.name}</span>}
           </div>
         )}
 
@@ -240,11 +279,16 @@ export default function DeviceControl() {
 
               {detectionMode === 'grid' ? (
                 <div className="space-y-3">
+                  <LabeledInput label="Starting point (metres)" placeholder="e.g. 0" type="number" value={distance} onChange={setDistance} min={0} />
                   <div className="grid grid-cols-2 gap-3">
-                    <LabeledInput label="Grid X" placeholder="e.g. 4" type="number" value={gridX} onChange={setGridX} />
-                    <LabeledInput label="Grid Y" placeholder="e.g. 2" type="number" value={gridY} onChange={setGridY} />
+                    <LabeledInput label="Start column" type="number" value={startCol} onChange={setStartCol} min={1} />
+                    <LabeledInput label="Start row" type="number" value={startRow} onChange={setStartRow} min={1} />
                   </div>
-                  <LabeledInput label="Forward distance (metres)" placeholder="e.g. 5.0" type="number" value={distance} onChange={setDistance} />
+                  {selectedFieldObj && (
+                    <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
+                      Grid: <strong>{gridCols} × {gridRows}</strong> cells &nbsp;·&nbsp; Cell: <strong>{cellWidthM} m × {cellLengthM} m</strong> &nbsp;·&nbsp; Scan order: <strong>{partitionType}s</strong>
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -270,8 +314,21 @@ export default function DeviceControl() {
               >
                 <span>⊙</span> Start weed detection
               </button>
-              {!currentDevice?.online && selectedDev && (
-                <p className="text-xs text-red-500 mt-1.5 text-center">Device is offline — cannot start detection.</p>
+              {startError && (
+                <p className="text-xs text-red-500 mt-1.5 text-center">{startError}</p>
+              )}
+              {!running && !canStart && !startError && (
+                (!selectedDev || !selectedField) ? (
+                  <p className="text-xs text-slate-500 mt-1.5 text-center">Please select a device and a field to start detection.</p>
+                ) : !currentDevice?.online ? (
+                  <p className="text-xs text-red-500 mt-1.5 text-center">Device is offline — cannot start detection.</p>
+                ) : !isModeReady ? (
+                  <p className="text-xs text-slate-500 mt-1.5 text-center">
+                    {detectionMode === 'grid'
+                      ? 'Please enter valid grid dimensions and starting point.'
+                      : 'Please select a route.'}
+                  </p>
+                ) : null
               )}
             </>
           ) : (

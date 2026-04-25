@@ -21,6 +21,7 @@ export default function RunDetail() {
   const [logs,    setLogs]    = useState({ total: 0, logs: [] });
   const [page,    setPage]    = useState(1);
   const [limit,   setLimit]   = useState(10);
+  const [lightbox, setLightbox] = useState(null); // { src, label }
 
   useEffect(() => {
     Promise.allSettled([
@@ -44,6 +45,13 @@ export default function RunDetail() {
   }, [runId, page, limit]);
 
   const totalPages = Math.ceil((logs.total ?? 0) / limit);
+
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = e => { if (e.key === 'Escape') setLightbox(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightbox]);
 
   if (!run) {
     return (
@@ -161,14 +169,18 @@ export default function RunDetail() {
                   <td className="py-3 pr-6 font-mono text-slate-700">{log.grid_pos}</td>
                   <td className="py-3 pr-6">
                     {log.original_url
-                      ? <img src={log.original_url} alt="original" className="w-12 h-10 object-cover rounded-md border border-slate-200"/>
+                      ? <button onClick={() => setLightbox({ src: log.original_url, label: 'Original photo' })} className="cursor-pointer focus:outline-none">
+                          <img src={log.original_url} alt="original" className="w-12 h-10 object-cover rounded-md border border-slate-200 hover:ring-2 hover:ring-slate-400 transition"/>
+                        </button>
                       : <span className="w-12 h-10 flex items-center justify-center rounded-md border border-slate-200 text-slate-300 bg-slate-50">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                         </span>}
                   </td>
                   <td className="py-3 pr-6">
                     {log.annotated_url
-                      ? <img src={log.annotated_url} alt="annotated" className="w-12 h-10 object-cover rounded-md border border-red-200"/>
+                      ? <button onClick={() => setLightbox({ src: log.annotated_url, label: 'Annotated photo' })} className="cursor-pointer focus:outline-none">
+                          <img src={log.annotated_url} alt="annotated" className="w-12 h-10 object-cover rounded-md border border-red-200 hover:ring-2 hover:ring-red-400 transition"/>
+                        </button>
                       : <span className="w-12 h-10 flex items-center justify-center rounded-md border border-red-200 text-red-300 bg-red-50">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                         </span>}
@@ -192,6 +204,28 @@ export default function RunDetail() {
           rowsOptions={ROWS_OPTIONS}
         />
       </div>
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center"
+          onClick={() => setLightbox(null)}
+        >
+          <div className="relative flex flex-col items-center gap-3" onClick={e => e.stopPropagation()}>
+            <p className="text-white text-sm font-semibold tracking-wide">{lightbox.label}</p>
+            <img
+              src={lightbox.src}
+              alt={lightbox.label}
+              className="max-w-[90vw] max-h-[80vh] object-contain rounded-lg shadow-2xl"
+            />
+            <button
+              onClick={() => setLightbox(null)}
+              className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center text-lg leading-none transition cursor-pointer"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </PageLayout>
   );
 }

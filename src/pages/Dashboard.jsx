@@ -16,6 +16,37 @@ import {
   getFields, createField, deleteField, getDevices,
 } from '../services/api';
 
+const MAX_GRID_DIM = 60; // never render more than 60×60 = 3600 cells
+
+function downsampleGrid(grid) {
+  const rows = grid.length;
+  const cols = grid[0]?.length ?? 0;
+  if (!rows || !cols) return grid;
+  if (rows <= MAX_GRID_DIM && cols <= MAX_GRID_DIM) return grid;
+
+  const rStep = rows / MAX_GRID_DIM;
+  const cStep = cols / MAX_GRID_DIM;
+  const outRows = Math.min(rows, MAX_GRID_DIM);
+  const outCols = Math.min(cols, MAX_GRID_DIM);
+
+  // Pick the dominant non-null density value in each sampled block
+  const rank = { high: 3, medium: 2, low: 1, empty: 0, null: -1 };
+  return Array.from({ length: outRows }, (_, ri) =>
+    Array.from({ length: outCols }, (_, ci) => {
+      const r0 = Math.floor(ri * rStep), r1 = Math.floor((ri + 1) * rStep);
+      const c0 = Math.floor(ci * cStep), c1 = Math.floor((ci + 1) * cStep);
+      let best = null;
+      for (let r = r0; r < r1; r++) {
+        for (let c = c0; c < c1; c++) {
+          const v = grid[r]?.[c] ?? null;
+          if ((rank[v] ?? -1) > (rank[best] ?? -1)) best = v;
+        }
+      }
+      return best;
+    })
+  );
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [showError, errorToast] = useErrorToast();
@@ -37,7 +68,7 @@ export default function Dashboard() {
   const [addForm, setAddForm] = useState({ name: '', width: '', length: '', partition_type: 'row', partition_count: '' });
   const [addError, setAddError] = useState('');
 
-  const fetchAll = useCallback(async (fieldId) => {
+  const fetchAll = useCallback(async (fieldId, signal) => {
     const [m, r, s, d, devs, flds] = await Promise.allSettled([
       getDashboardMetrics(fieldId),
       getRunsChart(fieldId),
@@ -46,42 +77,64 @@ export default function Dashboard() {
       getDevices(),
       getFields(),
     ]);
+    if (signal?.aborted) return null;
     if (m.status === 'fulfilled')    setMetrics(m.value);
     else showError(m.reason?.message || 'Failed to load metrics.');
     if (r.status === 'fulfilled')    setRunsData(r.value);
     else showError(r.reason?.message || 'Failed to load run history.');
     if (s.status === 'fulfilled')    setSpecies(s.value);
     else showError(s.reason?.message || 'Failed to load species breakdown.');
-    if (d.status === 'fulfilled')    setGrid(d.value);
+    if (d.status === 'fulfilled')    setGrid(downsampleGrid(d.value));
     else showError(d.reason?.message || 'Failed to load density map.');
     if (devs.status === 'fulfilled') setDevices(devs.value);
     else showError(devs.reason?.message || 'Failed to load devices.');
     if (flds.status === 'fulfilled') {
       setFields(flds.value);
-      setActiveFieldId(prev => {
-        const ids = flds.value.map(f => f.id);
-        return ids.includes(Number(prev)) ? Number(prev) : (ids[0] ?? prev);
-      });
+      return flds.value;
     } else {
       showError(flds.reason?.message || 'Failed to load fields.');
+      return null;
     }
   }, [showError]);
 
-  useEffect(() => { fetchAll(activeFieldId); }, [activeFieldId]);
-
-  // Poll device status every 30s
+  // On mount: fetch everything once and initialise the active field ID
   useEffect(() => {
+    const controller = new AbortController();
+    fetchAll(defaultFieldId, controller.signal).then(fetchedFields => {
+      if (!fetchedFields || controller.signal.aborted) return;
+      const ids = fetchedFields.map(f => f.id);
+      setActiveFieldId(prev =>
+        ids.includes(Number(prev)) ? Number(prev) : (ids[0] ?? prev)
+      );
+    });
+    return () => controller.abort();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch when the user switches fields (activeFieldId set by user action, not by fetchAll)
+  useEffect(() => {
+    if (activeFieldId == null) return;
+    const controller = new AbortController();
+    fetchAll(activeFieldId, controller.signal);
+    return () => controller.abort();
+  }, [activeFieldId, fetchAll]);
+
+  // Poll device status every 30s with in-flight guard
+  useEffect(() => {
+    let inFlight = false;
     const id = setInterval(async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const devs = await getDevices();
         setDevices(devs);
       } catch (err) {
-        clearInterval(id);
         showError(err.message || 'Lost connection while polling devices.');
+      } finally {
+        inFlight = false;
       }
     }, 30000);
     return () => clearInterval(id);
-  }, [showError]);
+  }, []);
 
   function toggleFavorite(id) {
     setFavoriteFieldIds(prev => {

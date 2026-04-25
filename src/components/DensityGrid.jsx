@@ -1,5 +1,28 @@
 import { DENSITY_COLORS } from '../constants';
 
+const MAX_DIM = 60;
+const RANK = { high: 3, medium: 2, low: 1, empty: 0, null: -1 };
+
+function downsample(grid) {
+  const rows = grid.length, cols = grid[0]?.length ?? 0;
+  if (!rows || !cols || (rows <= MAX_DIM && cols <= MAX_DIM)) return grid;
+  const rStep = rows / MAX_DIM, cStep = cols / MAX_DIM;
+  const outR = Math.min(rows, MAX_DIM), outC = Math.min(cols, MAX_DIM);
+  return Array.from({ length: outR }, (_, ri) =>
+    Array.from({ length: outC }, (_, ci) => {
+      const r0 = Math.floor(ri * rStep), r1 = Math.floor((ri + 1) * rStep);
+      const c0 = Math.floor(ci * cStep), c1 = Math.floor((ci + 1) * cStep);
+      let best = null;
+      for (let r = r0; r < r1; r++)
+        for (let c = c0; c < c1; c++) {
+          const v = grid[r]?.[c] ?? null;
+          if ((RANK[v] ?? -1) > (RANK[best] ?? -1)) best = v;
+        }
+      return best;
+    })
+  );
+}
+
 const LEGEND = [
   { key: 'low',    label: 'Low',    cls: 'bg-green-400' },
   { key: 'medium', label: 'Medium', cls: 'bg-orange-300' },
@@ -17,7 +40,8 @@ const LEGEND = [
  *   devicePos?  — { x, y } — highlights the device position cell with a ring
  */
 export default function DensityGrid({ grid, cellSize = 26, cellHeight = 24, showLegend = true, devicePos }) {
-  const cols = grid[0]?.length ?? 0;
+  const safe = downsample(grid);
+  const cols = safe[0]?.length ?? 0;
 
   return (
     <div>
@@ -42,7 +66,7 @@ export default function DensityGrid({ grid, cellSize = 26, cellHeight = 24, show
           className="inline-grid gap-1"
           style={{ gridTemplateColumns: `repeat(${cols}, minmax(${cellSize}px, 1fr))` }}
         >
-          {grid.map((row, ri) =>
+          {safe.map((row, ri) =>
             row.map((density, ci) => {
               const isDevice = devicePos?.x === ci && devicePos?.y === ri;
               return (
