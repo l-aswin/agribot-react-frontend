@@ -16,15 +16,16 @@ function weedCountToDensity(count) {
   return 'high';
 }
 
-function bucketsToDensityGrid(buckets, gridRows, gridCols, partitionType) {
+function bucketsToDensityGrid(buckets, gridRows, gridCols, partitionType, currentPath) {
   const grid = Array.from({ length: gridRows }, () => Array(gridCols).fill(null));
+  const pathIdx = (currentPath ?? 1) - 1;
   buckets.forEach(({ cell, weed_count, step_count }) => {
     if (cell < 0 || cell >= 20 || step_count === 0) return;
     const density = weedCountToDensity(weed_count);
     if (partitionType === 'row') {
-      if (cell < gridCols) grid[0][cell] = density;
+      grid[pathIdx][cell] = density;
     } else {
-      if (cell < gridRows) grid[cell][0] = density;
+      grid[cell][pathIdx] = density;
     }
   });
   return grid;
@@ -82,7 +83,7 @@ export default function DeviceControl() {
       } finally {
         inFlight = false;
       }
-    }, 10000);
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -102,15 +103,17 @@ export default function DeviceControl() {
   const GRID_SIZE = 20;
   const partitionType = selectedFieldObj?.partition_type ?? 'row';
   const pathCount = selectedFieldObj?.partition_count ?? GRID_SIZE;
-  const gridCols = selectedFieldObj ? (partitionType === 'row' ? GRID_SIZE : 1) : 12;
-  const gridRows = selectedFieldObj ? (partitionType === 'row' ? 1 : GRID_SIZE) : 8;
+  const gridRows = selectedFieldObj ? (partitionType === 'row' ? pathCount : GRID_SIZE) : 8;
+  const gridCols = selectedFieldObj ? (partitionType === 'row' ? GRID_SIZE : pathCount) : 12;
   const cellWidthM  = selectedFieldObj ? (selectedFieldObj.width  / GRID_SIZE).toFixed(2) : null;
   const cellLengthM = selectedFieldObj ? (selectedFieldObj.length / GRID_SIZE).toFixed(2) : null;
   const forwardDistanceCm = selectedFieldObj
     ? Math.round((partitionType === 'row' ? selectedFieldObj.length : selectedFieldObj.width) * 100)
     : 0;
-  const progressPct = (detStatus?.total_steps > 0)
-    ? Math.min(100, Math.round(((detStatus?.current_steps ?? 0) / detStatus.total_steps) * 100))
+  const camWidthCm = parseFloat(currentDevice?.camera_vision_width_cm) || 0;
+  const totalStepsForPath = camWidthCm > 0 ? Math.round(forwardDistanceCm / camWidthCm) : 0;
+  const progressPct = (totalStepsForPath > 0 && detStatus?.current_steps != null)
+    ? Math.min(100, Math.round((detStatus.current_steps / totalStepsForPath) * 100))
     : 0;
   const startColVal = partitionType === 'row' ? 0 : +currentPath - 1;
   const startRowVal = partitionType === 'row' ? +currentPath - 1 : 0;
@@ -140,7 +143,7 @@ export default function DeviceControl() {
     gridPollRef.current = setInterval(async () => {
       try {
         const g = await pollDetectionGrid(selectedDev);
-        setLiveGrid(bucketsToDensityGrid(g, gridRows, gridCols, partitionType));
+        setLiveGrid(bucketsToDensityGrid(g, gridRows, gridCols, partitionType, +currentPath));
       } catch (err) {
         clearInterval(gridPollRef.current);
         showError(err.message || 'Failed to fetch detection grid.');
@@ -173,7 +176,7 @@ export default function DeviceControl() {
     }
     const emptyGrid = Array.from({ length: gridRows }, () => Array(gridCols).fill(null));
     setRunning(true);
-    setDetStatus({ cells_total: 0, cells_scanned: 0, weeds_found: 0 });
+    setDetStatus({ total_distance_cm: 0, cells_scanned: 0, weeds_found: 0 });
     setLiveGrid(emptyGrid);
     startPolling();
   }

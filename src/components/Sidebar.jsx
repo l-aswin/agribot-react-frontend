@@ -110,17 +110,6 @@ export default function Sidebar({ open, onClose, collapsed, onToggleCollapse }) 
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="p-2 border-t border-slate-100">
-        <div className={`flex items-center gap-3 px-2 py-2 ${collapsed ? 'justify-center' : ''}`}>
-          <div className="w-7 h-7 rounded-full bg-green-100 text-green-700 flex items-center justify-center shrink-0">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-            </svg>
-          </div>
-          {!collapsed && <span className="text-sm font-medium text-slate-700">Admin</span>}
-        </div>
-      </div>
     </div>
   );
 
