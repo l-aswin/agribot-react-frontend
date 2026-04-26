@@ -10,16 +10,24 @@ import {
 } from '../services/api';
 import useErrorToast from '../hooks/useErrorToast';
 
-function mapCountsToDensity(rawGrid) {
-  return rawGrid.map(row =>
-    row.map(val => {
-      if (val === null || val === undefined) return null;
-      if (typeof val === 'string') return val;
-      if (val < 10)  return 'low';
-      if (val < 20)  return 'medium';
-      return 'high';
-    })
-  );
+function weedCountToDensity(count) {
+  if (count < 10)  return 'low';
+  if (count < 20) return 'medium';
+  return 'high';
+}
+
+function bucketsToDensityGrid(buckets, gridRows, gridCols, partitionType) {
+  const grid = Array.from({ length: gridRows }, () => Array(gridCols).fill(null));
+  buckets.forEach(({ cell, weed_count, step_count }) => {
+    if (cell < 0 || cell >= 20 || step_count === 0) return;
+    const density = weedCountToDensity(weed_count);
+    if (partitionType === 'row') {
+      if (cell < gridCols) grid[0][cell] = density;
+    } else {
+      if (cell < gridRows) grid[cell][0] = density;
+    }
+  });
+  return grid;
 }
 
 export default function DeviceControl() {
@@ -101,6 +109,9 @@ export default function DeviceControl() {
   const forwardDistanceCm = selectedFieldObj
     ? Math.round((partitionType === 'row' ? selectedFieldObj.length : selectedFieldObj.width) * 100)
     : 0;
+  const progressPct = (detStatus?.total_steps > 0)
+    ? Math.min(100, Math.round(((detStatus?.current_steps ?? 0) / detStatus.total_steps) * 100))
+    : 0;
   const startColVal = partitionType === 'row' ? 0 : +currentPath - 1;
   const startRowVal = partitionType === 'row' ? +currentPath - 1 : 0;
 
@@ -129,7 +140,7 @@ export default function DeviceControl() {
     gridPollRef.current = setInterval(async () => {
       try {
         const g = await pollDetectionGrid(selectedDev);
-        setLiveGrid(mapCountsToDensity(g));
+        setLiveGrid(bucketsToDensityGrid(g, gridRows, gridCols, partitionType));
       } catch (err) {
         clearInterval(gridPollRef.current);
         showError(err.message || 'Failed to fetch detection grid.');
@@ -340,19 +351,26 @@ export default function DeviceControl() {
               </p>
               <div className="mb-3">
                 <DensityGrid
-                  grid={liveGrid.map((row, ri) =>
-                    row.map((cell, ci) =>
-                      ri * gridCols + ci < (detStatus?.cells_scanned ?? 0) ? cell : null
-                    )
-                  )}
+                  grid={liveGrid}
                   cellSize={18}
                   cellHeight={20}
                   showLegend
                   devicePos={detStatus?.device_position}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3 text-sm text-slate-700 mb-4">
-                <div><span className="text-xs text-slate-400">Cells scanned</span><br/><strong>{detStatus?.cells_scanned ?? 0} / {detStatus?.cells_total ?? 0}</strong></div>
+              <div className="space-y-3 text-sm text-slate-700 mb-4">
+                <div>
+                  <span className="text-xs text-slate-400">Progress</span>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500 rounded-full transition-all duration-500"
+                        style={{ width: `${progressPct}%` }}
+                      />
+                    </div>
+                    <strong className="text-sm tabular-nums w-10 text-right">{progressPct}%</strong>
+                  </div>
+                </div>
                 <div><span className="text-xs text-slate-400">Weeds found</span><br/><strong>{detStatus?.weeds_found ?? 0}</strong></div>
               </div>
               <button onClick={handleStopDetection}

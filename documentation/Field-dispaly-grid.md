@@ -48,3 +48,10 @@ then goto next cell in vertical fashion
 ...and so on 
 
 
+## dsiplay progress logic
+detection in progress view, plot a has length of 500meter, camera vision width cm can fetched from devices table based on device id. 
+### robot has to move 
+ total steps = convert camera vision width cm to meters and divide by **field length** if partition type is **row**
+ or 
+ total steps = convert camera vision width cm to meters and divide by **field width** if partition type is **column**. 
+Progress(%) = (current step/total steps)*100
