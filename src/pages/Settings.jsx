@@ -21,7 +21,7 @@ export default function Settings() {
       .catch(err => showError(err.message || 'Failed to load devices.'));
   }, []);
 
-  const currentDev = devices.find(d => d.id === selectedDev);
+  const currentDev = devices.find(d => String(d.id) === selectedDev);
   const canFetch = selectedDev && currentDev?.online;
   const canSend  = config && currentDev?.online && currentDev?.status === 'idle' && !sending;
 
@@ -68,7 +68,7 @@ export default function Settings() {
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white cursor-pointer"
             >
               <option value="">— Choose device —</option>
-              {devices.map(d => <option key={d.id} value={d.id}>{d.id}{!d.online ? ' (offline)' : ''}</option>)}
+              {devices.map(d => <option key={d.id} value={d.id}>{d.name ?? d.device_id}{!d.online ? ' (offline)' : ''}</option>)}
             </select>
           </div>
           <button
@@ -110,7 +110,12 @@ export default function Settings() {
             {CONFIG_KEYS.map((key, i) => (
               <div key={key} className={`flex items-center gap-4 px-4 py-3 ${i < CONFIG_KEYS.length - 1 ? 'border-b border-slate-100' : ''}`}>
                 <span className="w-44 text-sm font-medium text-slate-600 shrink-0">{key}</span>
-                {editRow === key ? (
+                {key === 'device_id' ? (
+                  <>
+                    <span className="flex-1 text-sm text-slate-700 font-mono">{currentDev?.device_id}</span>
+                    <span className="text-xs px-3 py-1.5 text-slate-400 select-none">Readonly</span>
+                  </>
+                ) : editRow === key ? (
                   <div className="flex flex-1 gap-2 items-center">
                     <input value={editVal} onChange={e => setEditVal(e.target.value)} autoFocus
                       className="flex-1 border border-green-400 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-green-500" />

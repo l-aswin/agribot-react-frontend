@@ -6,6 +6,7 @@ import RunDetail    from './pages/RunDetail';
 import DeviceControl from './pages/DeviceControl';
 import DeviceManager from './pages/DeviceManager';
 import Settings     from './pages/Settings';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('access_token');
@@ -15,6 +16,7 @@ function PrivateRoute({ children }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <ErrorBoundary>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/dashboard"          element={<PrivateRoute><Dashboard /></PrivateRoute>} />
@@ -25,6 +27,7 @@ export default function App() {
         <Route path="/settings"           element={<PrivateRoute><Settings /></PrivateRoute>} />
         <Route path="*"                   element={<Navigate to="/login" replace />} />
       </Routes>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

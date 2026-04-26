@@ -280,9 +280,9 @@ export default function DeviceManager() {
                     <td className="px-5 py-3 font-medium text-slate-800">{d.name}</td>
                     <td className="px-5 py-3">
                       <span className="flex items-center gap-1.5">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${d.status === 'online' ? 'bg-green-500' : 'bg-slate-300'}`} />
-                        <span className={d.status === 'online' ? 'text-green-700' : 'text-slate-400'}>
-                          {d.status === 'online' ? 'Online' : 'Offline'}
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${d.online ? 'bg-green-500' : 'bg-slate-300'}`} />
+                        <span className={d.online ? 'text-green-700' : 'text-slate-400'}>
+                          {d.online ? 'Online' : 'Offline'}
                         </span>
                       </span>
                     </td>

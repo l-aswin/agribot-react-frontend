@@ -45,7 +45,11 @@ export default function RunDetail() {
     ]).then(([r, s, g, sum, l]) => {
       if (r.status   === 'fulfilled') setRun(r.value);
       else showError(r.reason?.message || 'Failed to load run details.');
-      if (s.status   === 'fulfilled') setSpecies(s.value);
+      if (s.status   === 'fulfilled') setSpecies(s.value.map(x => ({
+        name: x.species,
+        value: x.count,
+        fill: SPECIES_COLORS[x.species] ?? '#94a3b8',
+      })));
       else showError(s.reason?.message || 'Failed to load species breakdown.');
       if (g.status   === 'fulfilled') setGrid(mapCountsToDensity(g.value));
       else showError(g.reason?.message || 'Failed to load density map.');
@@ -90,7 +94,7 @@ export default function RunDetail() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-slate-800">Run #{run.run_number} · {run.device_id}</h2>
-          <p className="text-sm text-slate-500 mt-0.5">{formatDateTime(run.datetime, ' · ')} · {run.field} · {run.duration} duration</p>
+          <p className="text-sm text-slate-500 mt-0.5">{formatDateTime(run.datetime, ' · ')} · {run.field?.name ?? run.field} · {run.duration != null ? `${run.duration}s` : 'ongoing'} duration</p>
         </div>
         <span className="text-sm font-bold px-3 py-1.5 rounded-full bg-green-100 text-green-700">{run.weeds} weeds</span>
       </div>
@@ -139,7 +143,7 @@ export default function RunDetail() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100">
-                  {['Device ID', 'Connectivity', 'Total weeds detected', 'Total photos taken', 'Total run time'].map(h => (
+                  {['Device ID', 'Device Name', 'Camera Index', 'Confidence Threshold', 'Serial Port'].map(h => (
                     <th key={h} className="text-left text-xs font-semibold text-slate-400 pb-2 pr-6 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -147,15 +151,10 @@ export default function RunDetail() {
               <tbody>
                 <tr>
                   <td className="py-3 pr-6 font-semibold text-slate-700">{summary.device_id}</td>
-                  <td className="py-3 pr-6">
-                    <span className="flex items-center gap-1.5 text-slate-700">
-                      <span className="w-2 h-2 rounded-full bg-green-500 inline-block"/>
-                      {summary.connectivity}
-                    </span>
-                  </td>
-                  <td className="py-3 pr-6 text-slate-700">{summary.total_weeds}</td>
-                  <td className="py-3 pr-6 text-slate-700">{summary.total_photos}</td>
-                  <td className="py-3 text-slate-700">{summary.run_time}</td>
+                  <td className="py-3 pr-6 text-slate-700">{summary.device_name}</td>
+                  <td className="py-3 pr-6 text-slate-700">{summary.camera_index}</td>
+                  <td className="py-3 pr-6 text-slate-700">{summary.confidence_threshold}</td>
+                  <td className="py-3 text-slate-700">{summary.serial_port}</td>
                 </tr>
               </tbody>
             </table>
@@ -170,7 +169,7 @@ export default function RunDetail() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100">
-                {['Grid position', 'Original photo', 'Annotated photo', 'Species'].map(h => (
+                {['Grid position', 'Photo', 'Species', 'Confidence', 'Timestamp'].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-slate-400 pb-2 pr-6 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -178,28 +177,21 @@ export default function RunDetail() {
             <tbody>
               {(logs.logs ?? []).map(log => (
                 <tr key={log.id} className="border-b border-slate-50">
-                  <td className="py-3 pr-6 font-mono text-slate-700">{log.grid_pos}</td>
+                  <td className="py-3 pr-6 font-mono text-slate-700">{log.cell}</td>
                   <td className="py-3 pr-6">
-                    {log.original_url
-                      ? <button onClick={() => setLightbox({ src: log.original_url, label: 'Original photo' })} className="cursor-pointer focus:outline-none">
-                          <img src={log.original_url} alt="original" className="w-12 h-10 object-cover rounded-md border border-slate-200 hover:ring-2 hover:ring-slate-400 transition"/>
+                    {log.image_url
+                      ? <button onClick={() => setLightbox({ src: log.image_url, label: 'Photo' })} className="cursor-pointer focus:outline-none">
+                          <img src={log.image_url} alt="photo" className="w-12 h-10 object-cover rounded-md border border-slate-200 hover:ring-2 hover:ring-slate-400 transition"/>
                         </button>
                       : <span className="w-12 h-10 flex items-center justify-center rounded-md border border-slate-200 text-slate-300 bg-slate-50">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                         </span>}
                   </td>
                   <td className="py-3 pr-6">
-                    {log.annotated_url
-                      ? <button onClick={() => setLightbox({ src: log.annotated_url, label: 'Annotated photo' })} className="cursor-pointer focus:outline-none">
-                          <img src={log.annotated_url} alt="annotated" className="w-12 h-10 object-cover rounded-md border border-red-200 hover:ring-2 hover:ring-red-400 transition"/>
-                        </button>
-                      : <span className="w-12 h-10 flex items-center justify-center rounded-md border border-red-200 text-red-300 bg-red-50">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                        </span>}
-                  </td>
-                  <td className="py-3 pr-6">
                     <span className={`text-xs px-2 py-1 rounded-full text-white font-medium ${SPECIES_COLORS[log.species] ?? 'bg-slate-400'}`}>{log.species}</span>
                   </td>
+                  <td className="py-3 pr-6 text-slate-600 text-xs">{log.confidence != null ? log.confidence.toFixed(2) : '—'}</td>
+                  <td className="py-3 text-slate-500 text-xs whitespace-nowrap">{formatDateTime(log.timestamp)}</td>
                 </tr>
               ))}
             </tbody>

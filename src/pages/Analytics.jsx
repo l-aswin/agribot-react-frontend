@@ -6,15 +6,20 @@ import Pagination from '../components/Pagination';
 import { WeedBadge } from '../components/Badges';
 import { formatDateTime } from '../utils/formatters';
 import { ROWS_OPTIONS } from '../constants';
-import { getRuns, getFields, getDevices } from '../services/api';
+import { getRuns, getFields, getDevices, deleteFilteredRuns } from '../services/api';
 import useErrorToast from '../hooks/useErrorToast';
 
-const MONTH_OPTIONS = [
-  { value: '',        label: 'All months' },
-  { value: '2025-04', label: 'April 2025' },
-  { value: '2025-03', label: 'March 2025' },
-  { value: '2025-02', label: 'February 2025' },
-];
+const MONTH_OPTIONS = (() => {
+  const now = new Date();
+  const options = [{ value: '', label: 'All months' }];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+    options.push({ value, label });
+  }
+  return options;
+})();
 
 export default function Analytics() {
   const navigate = useNavigate();
@@ -27,6 +32,7 @@ export default function Analytics() {
   const [data,    setData]    = useState({ total: 0, runs: [] });
   const [fields,  setFields]  = useState([]);
   const [devices, setDevices] = useState([]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const fetchData = useCallback(async (f, pg, lim) => {
     try {
@@ -39,14 +45,26 @@ export default function Analytics() {
 
   useEffect(() => {
     Promise.allSettled([getFields(), getDevices()]).then(([f, d]) => {
-      if (f.status === 'fulfilled') setFields(f.value.map(x => x.name ?? x));
+      if (f.status === 'fulfilled' && Array.isArray(f.value)) setFields(f.value.map(x => ({ id: x.id, name: x.name ?? String(x.id) })).filter(x => x.id != null));
       else showError(f.reason?.message || 'Failed to load fields.');
-      if (d.status === 'fulfilled') setDevices(d.value.map(x => x.id ?? x));
+      if (d.status === 'fulfilled' && Array.isArray(d.value)) setDevices(d.value.map(x => x.device_id).filter(Boolean));
       else showError(d.reason?.message || 'Failed to load devices.');
     });
   }, []);
 
   useEffect(() => { fetchData(applied, page, limit); }, [applied, page, limit]);
+
+  async function handleDelete() {
+    try {
+      await deleteFilteredRuns(applied);
+      setConfirmDelete(false);
+      setPage(1);
+      fetchData(applied, 1, limit);
+    } catch (err) {
+      showError(err.message || 'Failed to delete runs.');
+      setConfirmDelete(false);
+    }
+  }
 
   function applyFilters() { setApplied({ ...filters }); setPage(1); }
   function resetFilters() {
@@ -73,7 +91,7 @@ export default function Analytics() {
           />
           <FilterSelect label="Field" value={filters.field_id}
             onChange={v => setFilters(f => ({ ...f, field_id: v }))}
-            options={[{ value: '', label: 'All fields' }, ...fields.map(d => ({ value: d, label: d }))]}
+            options={[{ value: '', label: 'All fields' }, ...fields.map(f => ({ value: String(f.id), label: f.name }))]}
           />
           <FilterSelect label="Month" value={filters.month}
             onChange={v => setFilters(f => ({ ...f, month: v }))}
@@ -83,6 +101,11 @@ export default function Analytics() {
         <div className="flex gap-2 mb-4">
           <button onClick={applyFilters} className="px-4 py-1.5 text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50 cursor-pointer">Apply</button>
           <button onClick={resetFilters} className="px-4 py-1.5 text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50 cursor-pointer">Reset</button>
+          <button
+            onClick={() => setConfirmDelete(true)}
+            disabled={activeChips.length === 0}
+            className="px-4 py-1.5 text-sm font-medium border border-red-300 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >Delete filtered</button>
         </div>
 
         {/* Active chips */}
@@ -91,7 +114,7 @@ export default function Analytics() {
             <span className="text-xs text-slate-500 self-center">Active filters:</span>
             {activeChips.map(([k, v]) => (
               <span key={k} className="flex items-center gap-1 text-xs bg-slate-100 text-slate-700 rounded-full px-3 py-1">
-                {v}
+                {k === 'field_id' ? (fields.find(f => String(f.id) === v)?.name ?? v) : v}
                 <button onClick={() => { const n = { ...applied, [k]: '' }; setApplied(n); setFilters(n); }} className="cursor-pointer text-slate-400 hover:text-slate-700">×</button>
               </span>
             ))}
@@ -115,16 +138,16 @@ export default function Analytics() {
             </thead>
             <tbody>
               {(data.runs ?? []).map(run => (
-                <tr key={run.run_id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                <tr key={run.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                   <td className="py-3 pr-4 font-semibold text-slate-700">#{run.run_number}</td>
                   <td className="py-3 pr-4 text-slate-600">{run.device_id}</td>
-                  <td className="py-3 pr-4 text-slate-600">{run.field}</td>
+                  <td className="py-3 pr-4 text-slate-600">{run.field?.name ?? run.field}</td>
                   <td className="py-3 pr-4 text-slate-600 whitespace-nowrap">{formatDateTime(run.datetime)}</td>
                   <td className="py-3 pr-4"><WeedBadge count={run.weeds} /></td>
                   <td className="py-3 pr-4 text-slate-600">{run.duration}</td>
                   <td className="py-3">
                     <button
-                      onClick={() => navigate(`/analytics/${run.run_id}`)}
+                      onClick={() => navigate(`/analytics/${run.id}`)}
                       className="text-green-700 hover:text-green-900 text-xs font-medium cursor-pointer flex items-center gap-1"
                     >
                       View <span>→</span>
@@ -146,6 +169,20 @@ export default function Analytics() {
           rowsOptions={ROWS_OPTIONS}
         />
       </div>
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <p className="font-semibold text-slate-800">Delete filtered runs?</p>
+            <p className="text-sm text-slate-500">
+              This will permanently delete all {data.total} run{data.total !== 1 ? 's' : ''} matching the active filters. This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmDelete(false)} className="px-4 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 cursor-pointer">Cancel</button>
+              <button onClick={handleDelete} className="px-4 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 cursor-pointer">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </PageLayout>
   );
 }

@@ -63,6 +63,9 @@ export const getRunsChart         = (fieldId, period = '30d') => request('GET', 
 export const getRuns = ({ device_id = '', field_id = '', month = '', page = 1, limit = 8 } = {}) =>
   request('GET', `/api/runs?device_id=${device_id}&field_id=${field_id}&month=${month}&page=${page}&limit=${limit}`);
 
+export const deleteFilteredRuns = ({ device_id = '', field_id = '', month = '' } = {}) =>
+  request('DELETE', `/api/runs?device_id=${device_id}&field_id=${field_id}&month=${month}`);
+
 export const getRun            = (runId) => request('GET', `/api/runs/${runId}`);
 export const getRunDensityMap  = (runId) => request('GET', `/api/runs/${runId}/density-map`);
 export const getRunSpecies     = (runId) => request('GET', `/api/runs/${runId}/species`);
