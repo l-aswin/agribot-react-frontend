@@ -39,7 +39,13 @@ export default function DeviceManager() {
 
   useEffect(() => {
     getDevices()
-      .then(data => { setDevices(data); setLoadingDevices(false); })
+      .then(data => {
+        setDevices(data);
+        setLoadingDevices(false);
+        const validIds = new Set(data.map(d => d.id));
+        setDashboardDeviceIds(prev => prev.filter(id => validIds.has(id)));
+        setFavoriteDeviceIds(prev => prev.filter(id => validIds.has(id)));
+      })
       .catch(err => { setLoadingDevices(false); showError(err.message || 'Failed to load devices.'); });
 
     const interval = setInterval(async () => {
@@ -73,6 +79,8 @@ export default function DeviceManager() {
     try {
       await deleteDevice(deleteTarget.id);
       setDevices(ds => ds.filter(d => d.id !== deleteTarget.id));
+      setDashboardDeviceIds(prev => prev.filter(id => id !== deleteTarget.id));
+      setFavoriteDeviceIds(prev => prev.filter(id => id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (err) {
       showError(err.message || 'Failed to delete device.');

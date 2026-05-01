@@ -84,6 +84,7 @@ export default function Dashboard() {
 
   const [defaultFieldId, setDefaultFieldId] = useLocalStorage('defaultFieldId', null);
   const [favoriteFieldIds, setFavoriteFieldIds] = useLocalStorage('favoriteFieldIds', []);
+  const [dashboardDeviceIds] = useLocalStorage('dashboardDeviceIds', []);
   const favoriteIds = new Set(favoriteFieldIds);
 
   const [loadingDensity, setLoadingDensity] = useState(false);
@@ -260,7 +261,7 @@ export default function Dashboard() {
         />
         {/* Device status card */}
         {(() => {
-          const dashIds = new Set(JSON.parse(localStorage.getItem('dashboardDeviceIds') ?? '[]'));
+          const dashIds = new Set(dashboardDeviceIds);
           const pinned  = dashIds.size > 0 ? devices.filter(d => dashIds.has(d.id)) : devices;
           return (
             <div className="col-span-2 lg:col-span-1 bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col">

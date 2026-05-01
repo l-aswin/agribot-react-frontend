@@ -4,7 +4,7 @@ import { PieChart, Pie, Tooltip, ResponsiveContainer } from 'recharts';
 import PageLayout from '../components/PageLayout';
 import DensityGrid from '../components/DensityGrid';
 import Pagination from '../components/Pagination';
-import { formatDateTime } from '../utils/formatters';
+import { formatDateTime, formatDuration } from '../utils/formatters';
 import { SPECIES_COLORS, ROWS_OPTIONS } from '../constants';
 import { getRun, getRunDensityMap, getRunSpecies, getRunDeviceSummary, getRunDetectionLogs } from '../services/api';
 import useErrorToast from '../hooks/useErrorToast';
@@ -94,7 +94,7 @@ export default function RunDetail() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-slate-800">Run #{run.run_number} · {run.device_id}</h2>
-          <p className="text-sm text-slate-500 mt-0.5">{formatDateTime(run.datetime, ' · ')} · {run.field?.name ?? run.field} · {run.duration != null ? `${run.duration}s` : 'ongoing'} duration</p>
+          <p className="text-sm text-slate-500 mt-0.5">{formatDateTime(run.datetime, ' · ')} · {run.field?.name ?? run.field} · {formatDuration(run.duration) ?? 'ongoing'} duration</p>
         </div>
         <span className="text-sm font-bold px-3 py-1.5 rounded-full bg-green-100 text-green-700">{run.weeds} weeds</span>
       </div>

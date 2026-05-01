@@ -62,6 +62,20 @@ export default function DeviceControl() {
   const [savingRoute,   setSavingRoute]   = useState(false);
 
   useEffect(() => {
+    const saved = localStorage.getItem('weedDetectionSession');
+    if (saved) {
+      try {
+        const s = JSON.parse(saved);
+        if (s.deviceId)      setSelectedDev(s.deviceId);
+        if (s.fieldId)       setSelectedField(s.fieldId);
+        if (s.currentPath)   setCurrentPath(s.currentPath);
+        if (s.detectionMode) setDetectionMode(s.detectionMode);
+        if (s.selectedRoute) setSelectedRoute(s.selectedRoute);
+      } catch (_) {}
+    }
+  }, []);
+
+  useEffect(() => {
     Promise.allSettled([getDevices(), getFields()]).then(([d, f]) => {
       if (d.status === 'fulfilled') setDevices(d.value);
       else showError(d.reason?.message || 'Failed to load devices.');
@@ -95,6 +109,20 @@ export default function DeviceControl() {
   }, [selectedDev]);
 
   useEffect(() => {
+    if (!selectedDev || loading) return;
+    pollDetectionStatus(selectedDev).then(s => {
+      if (s.status === 'running') {
+        setDetStatus(s);
+        setRunning(true);
+        startPolling();
+        pollDetectionGrid(selectedDev)
+          .then(g => setLiveGrid(bucketsToDensityGrid(g, gridRows, gridCols, partitionType, +currentPath)))
+          .catch(() => {});
+      }
+    }).catch(() => {});
+  }, [selectedDev, loading]);
+
+  useEffect(() => {
     setStartError(null);
   }, [selectedDev, selectedField, detectionMode, currentPath, selectedRoute]);
 
@@ -118,10 +146,14 @@ export default function DeviceControl() {
   const startColVal = partitionType === 'row' ? 0 : +currentPath - 1;
   const startRowVal = partitionType === 'row' ? +currentPath - 1 : 0;
 
-  const isGridReady = detectionMode === 'grid' && +currentPath >= 1;
+  const isGridReady = detectionMode === 'grid' && +currentPath >= 1 && +currentPath <= pathCount;
   const isRouteReady = detectionMode === 'route' && !!selectedRoute;
   const isModeReady = isGridReady || isRouteReady;
   const canStart = selectedDev && selectedField && currentDevice?.online && !running && isModeReady;
+
+  function clearSession() {
+    localStorage.removeItem('weedDetectionSession');
+  }
 
   function startPolling() {
     stopPolling();
@@ -132,6 +164,7 @@ export default function DeviceControl() {
         if (s.status === 'finished' || s.status === 'stopped') {
           stopPolling();
           setRunning(false);
+          clearSession();
           setLastRun(s.finished_at ?? s.stopped_at ?? new Date().toISOString());
         }
       } catch (err) {
@@ -178,6 +211,13 @@ export default function DeviceControl() {
     setRunning(true);
     setDetStatus({ total_distance_cm: 0, cells_scanned: 0, weeds_found: 0 });
     setLiveGrid(emptyGrid);
+    localStorage.setItem('weedDetectionSession', JSON.stringify({
+      deviceId: selectedDev,
+      fieldId: selectedField,
+      currentPath,
+      detectionMode,
+      selectedRoute,
+    }));
     startPolling();
   }
 
@@ -189,6 +229,7 @@ export default function DeviceControl() {
     }
     stopPolling();
     setRunning(false);
+    clearSession();
     setLastRun(`Stopped by user at ${new Date().toLocaleTimeString()}`);
   }
 
@@ -297,7 +338,10 @@ export default function DeviceControl() {
 
               {detectionMode === 'grid' ? (
                 <div className="space-y-3">
-                  <LabeledInput label="Current path" placeholder="e.g. 1" type="number" value={currentPath} onChange={setCurrentPath} min={1} />
+                  <LabeledInput label="Current path" placeholder="e.g. 1" type="number" value={currentPath} onChange={setCurrentPath} min={1} max={pathCount} />
+                  {selectedFieldObj && +currentPath > pathCount && (
+                    <p className="text-xs text-red-500">Current path cannot exceed {pathCount} (total paths in this field).</p>
+                  )}
                   {selectedFieldObj && (
                     <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
                       Grid: <strong>{gridCols} × {gridRows}</strong> cells &nbsp;·&nbsp; Cell: <strong>{cellWidthM} m × {cellLengthM} m</strong>
@@ -470,11 +514,11 @@ export default function DeviceControl() {
   );
 }
 
-function LabeledInput({ label, value, onChange, type = 'text', placeholder, min, step }) {
+function LabeledInput({ label, value, onChange, type = 'text', placeholder, min, max, step }) {
   return (
     <div>
       <label className="block text-xs font-semibold text-slate-500 mb-1">{label}</label>
-      <input type={type} placeholder={placeholder} value={value} min={min} step={step}
+      <input type={type} placeholder={placeholder} value={value} min={min} max={max} step={step}
         onChange={e => onChange(e.target.value)}
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500" />
     </div>

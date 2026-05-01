@@ -4,7 +4,7 @@ import PageLayout from '../components/PageLayout';
 import FilterSelect from '../components/FilterSelect';
 import Pagination from '../components/Pagination';
 import { WeedBadge } from '../components/Badges';
-import { formatDateTime } from '../utils/formatters';
+import { formatDateTime, formatDuration } from '../utils/formatters';
 import { ROWS_OPTIONS } from '../constants';
 import { getRuns, getFields, getDevices, deleteFilteredRuns } from '../services/api';
 import useErrorToast from '../hooks/useErrorToast';
@@ -144,7 +144,7 @@ export default function Analytics() {
                   <td className="py-3 pr-4 text-slate-600">{run.field?.name ?? run.field}</td>
                   <td className="py-3 pr-4 text-slate-600 whitespace-nowrap">{formatDateTime(run.datetime)}</td>
                   <td className="py-3 pr-4"><WeedBadge count={run.weeds} /></td>
-                  <td className="py-3 pr-4 text-slate-600">{run.duration}</td>
+                  <td className="py-3 pr-4 text-slate-600">{formatDuration(run.duration) ?? '—'}</td>
                   <td className="py-3">
                     <button
                       onClick={() => navigate(`/analytics/${run.id}`)}
